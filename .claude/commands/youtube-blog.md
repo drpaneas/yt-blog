@@ -1,0 +1,104 @@
+---
+description: Write a pedagogic developer blog post from a YouTube URL
+argument-hint: <youtube-url>
+disable-model-invocation: true
+allowed-tools: Read Write Edit Glob Grep Bash(python3 transcript_cli.py --stdout *) Bash(date +%Y%m%d-%H%M%S)
+---
+
+Turn the YouTube URL in `$ARGUMENTS` into a polished pedagogic Markdown blog post.
+
+Follow this workflow exactly.
+
+## 1. Validate the input and locate the local files
+
+- Ensure `$ARGUMENTS` looks like a valid YouTube URL.
+- Accept common YouTube URL forms such as `youtube.com/watch`, `youtu.be/...`, `m.youtube.com/...`, `youtube.com/shorts/...`, and `youtube.com/live/...`.
+- If it is not a usable YouTube URL, stop and tell the user to run `/youtube-blog <youtube-url>` with a valid URL.
+- Locate `transcript_cli.py` and `pedagogic.md` in the current project.
+- Prefer the workspace-root copies if multiple matches exist.
+- If either file is missing, stop and report which file is missing.
+
+## 2. Extract the source text
+
+- Run exactly `python3 transcript_cli.py --stdout "$ARGUMENTS"` from the directory that contains `transcript_cli.py`.
+- For URL inputs, `transcript_cli.py` is the only supported transcript-ingestion path.
+- Treat the full stdout as the primary source text.
+- Read the source text carefully before drafting anything.
+- Keep the article grounded in the transcript.
+- Do not add factual claims that are not supported by the source text.
+- For strong claims about products, benchmarks, security issues, or other contested points, make it clear that they are the speaker's claims or that they were presented that way in the talk.
+- Do not run `yt-dlp` directly, do not try alternative extractor arguments, do not retry with different subtitle languages, and do not search for or switch to local `.vtt` files as an improvised fallback for URL inputs.
+- If transcript extraction fails, is empty, or is too weak to support a real article, stop with a concise error instead of guessing.
+- If the failure indicates that only non-English subtitles are available, report that clearly and stop; do not translate, summarize from, or continue with a non-English transcript unless the user explicitly asks for that workflow in a future revision.
+
+## 3. Read the style reference
+
+- Read `pedagogic.md` carefully.
+- Use it as a style reference, not as content to copy.
+- Match its teaching-first structure, direct tone, and use of lightweight boxed summaries.
+- Ignore malformed, noisy, or contradictory examples in `pedagogic.md` if they conflict with the explicit writing rules in this command.
+
+## 4. Build a source-specific outline before drafting
+
+Derive a concrete outline that fits this specific source text.
+
+The article must:
+
+- open with a short `In this post` section in pedagogic style (this is the first prose after the H1; the visible `Source:` line comes after this opening, not before it)
+- explain the core underlying technology first, because part of the audience may know related tools or ideas but not this exact topic
+- retell the original author's point of view as guided lessons, including what problem they saw, why they reacted that way, and what they built or argued for
+- end with practical takeaways for developers
+
+Target audience:
+
+- developers with mixed familiarity
+- teach without talking down
+- assume the reader may have heard of the topic, but may not fully understand it yet
+
+## 5. Write the article
+
+Write a polished Markdown article to the workspace root.
+
+Filename rules:
+
+- Save as `youtube-blog-<slug>-<video-id>.md` (do not use `youtube-blog-<video-id>.md` alone as the default name)
+- Derive the video ID from common YouTube URL patterns when possible
+- After you finalize the article's main title, set the Markdown H1 to that title, then derive `<slug>` from that exact final H1 text:
+  - Use a short, lowercase, ASCII-only slug (drop or strip non-ASCII characters rather than inventing transliterations)
+  - Replace internal whitespace with single `-` characters
+  - Remove or replace characters that are invalid in cross-platform filenames: `\`, `/`, `:`, `*`, `?`, `"`, `<`, `>`, `|` (and any other characters you would not trust in a portable filename)
+  - Collapse consecutive `-` into a single `-`
+  - Trim leading and trailing `-` and `.` (including repeated trims until stable)
+  - Cap the `<slug>` segment at 50 ASCII characters; if longer after sanitization, truncate from the right until it fits
+- If sanitization yields an empty slug, use `post` as the slug
+- If no usable video ID can be derived from the URL, use `youtube-blog-<slug>-<timestamp>.md` (same slug rules; timestamp from `date +%Y%m%d-%H%M%S` when you need a disambiguator)
+- If the target filename already exists, append `-2`, `-3`, and so on immediately before `.md` until the name is unique; do not overwrite
+
+Writing rules:
+
+- After the opening `In this post` block (still near the top), include a visible attribution line with the actual YouTube URL the user passed in `$ARGUMENTS`, for example: `Source: https://...` (use the real URL string, not a placeholder); always keep that source-video URL present and unchanged in the output (link enrichment is additive only)
+- Link enrichment (balanced, not web-research mode): the visible `Source:` YouTube URL is mandatory and unchanged; treat it as the required outbound link to the video. Add at most about 2 to 4 additional outbound links for the whole article unless the transcript is dominated by clearly distinct canonical entities, and stay conservative rather than linking every proper noun. Add a non-source link only when you can point to one canonical public URL with high confidence from what the transcript states (or from brief, decisive confirmation); if you are not sure, omit the link and keep plain text. Prefer one canonical link per distinct entity; never guess, interpolate, or invent URLs to "cover" mentions. Reliable lookup or browsing tools, when available, may be used sparingly only to confirm a small number of high-signal links you already mean to include, not to expand link coverage; if lookup is unavailable or inconclusive, ship with only the `Source:` line plus any links you were already sure about
+- Niche or geeky references (proper nouns readers may not know, for example `Omakub`): on first mention, you may add one short clause that ties the term to this article only using what the transcript supports or a safe, minimal public gloss (for example "a Linux distro" or "a Ruby version manager") without mini-essays, speculation, or tone shifts; skip the clause if the source does not give enough to anchor it; keep the default voice teaching-first and magazine-like, using extra flavor only where it sharpens clarity or adds human texture without drifting into a different register
+- Quotes: use quotation marks only when the exact wording materially clarifies a technical point or strengthens a line of argument that paraphrase would weaken; do not quote mainly for punch, vibe, or rhetorical flourish. Cap total quoted sentences for the whole article at roughly 3 to 5 unless the transcript is unusually built around repeated verbatim refrains; keep quotes sparse within sections (about one strong quote per major section at most); avoid stacking multiple quotes or rhetorical devices in the same few sentences
+- Use short sections, direct explanations, and concrete examples
+- Translate the source author's opinions into teachable ideas without losing the author's voice
+- Keep jargon when it is useful, but explain it on first mention
+- Use a guided explainer structure rather than a bare summary
+- Use lightweight ASCII boxes or diagrams when helpful
+- Do not use Mermaid
+- Do not use `graph LR`
+- Review the draft like an experienced editor-in-chief from a serious technical magazine
+- If a section feels too thin, expand it so the article reads like a real narrative feature, not just notes
+- Do one final tone pass and, if it helps, add a slightly sharper and drier edge in an editorial, measured voice, keeping it professional and not rant-led
+- Do not turn the output into generic documentation about the process; write the article itself
+
+## 6. Optional illustrations
+
+- If your runtime supports image generation, you may create 1 to 3 original monochrome technical-comic PNG illustrations with a dry explainer feel and embed them near the relevant sections
+- Do not imitate `xkcd` or any named artist directly
+- If image generation is unavailable, skip images entirely without blocking the article
+
+## 7. Final response
+
+- Tell the user which file you wrote
+- Mention whether images were generated or skipped
