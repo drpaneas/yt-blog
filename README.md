@@ -25,9 +25,45 @@ python3 -m pip install -r requirements.txt
 
 That installs `yt-dlp`, which the Python scripts invoke via the `yt-dlp` executable on `PATH`.
 
-## Use it
+## Transcript CLI
 
-This repo ships a local Claude Code slash command:
+Fetch subtitles from a YouTube URL and print the cleaned transcript:
+
+```bash
+python3 transcript_cli.py "https://www.youtube.com/watch?v=VIDEO_ID" --stdout
+```
+
+Clean an existing local `.vtt` file:
+
+```bash
+python3 transcript_cli.py "downloaded.en.vtt"
+```
+
+Opt into non-English subtitle fallback for URL inputs:
+
+```bash
+python3 transcript_cli.py "https://www.youtube.com/watch?v=VIDEO_ID" --stdout --allow-non-english
+```
+
+Emit structured JSON for tooling or Claude command workflows:
+
+```bash
+python3 transcript_cli.py "https://www.youtube.com/watch?v=VIDEO_ID" --json --allow-non-english
+```
+
+### Language handling
+
+- Default URL ingestion is English-first.
+- The fetcher first tries an English-only subtitle pass.
+- If `yt-dlp` partially succeeds and still writes a fresh English `.vtt`, the pipeline uses it.
+- If only non-English subtitles are available, the plain CLI fails clearly by default instead of silently switching languages.
+- Passing `--allow-non-english` lets the CLI retry with a broader subtitle fetch and fall back to a deterministic non-English subtitle track.
+- URL subtitle fetches happen in a temporary working directory, so subtitle artifacts are not left in the repo root.
+- The `--json` mode is mainly intended for tooling and the Claude command workflow, and currently emits `text`, `language`, and `used_fallback`.
+
+## Claude Code command
+
+This repo also ships a local Claude Code slash command:
 
 ```text
 /youtube-blog <youtube-url>
@@ -44,14 +80,15 @@ To use it:
 
 The command will:
 
-- run `transcript_cli.py --stdout`
+- run `transcript_cli.py` in structured mode
 - read `pedagogic.md`
 - derive a source-specific outline
 - write a Markdown blog post to the repo root
 
+The command still uses `transcript_cli.py` as the only supported ingestion path, but it can opt into non-English subtitle ingestion and still produce the final blog post in English.
 If transcript extraction fails, the command is designed to stop cleanly instead of improvising with unsupported manual fallback steps.
 
-Another way is to no open claude at all, but run it from the command line:
+Another way is to not open Claude interactively at all, but run it from the command line:
 
 ```bash
 claude -p "/youtube-blog https://www.youtube.com/watch?v=VIDEO_ID"

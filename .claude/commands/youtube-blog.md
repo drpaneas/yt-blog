@@ -2,7 +2,7 @@
 description: Write a pedagogic developer blog post from a YouTube URL
 argument-hint: <youtube-url>
 disable-model-invocation: true
-allowed-tools: Read Write Edit Glob Grep Bash(python3 transcript_cli.py --stdout *) Bash(date +%Y%m%d-%H%M%S)
+allowed-tools: Read Write Edit Glob Grep Bash(python3 transcript_cli.py *) Bash(date +%Y%m%d-%H%M%S)
 ---
 
 Turn the YouTube URL in `$ARGUMENTS` into a polished pedagogic Markdown blog post.
@@ -20,16 +20,18 @@ Follow this workflow exactly.
 
 ## 2. Extract the source text
 
-- Run exactly `python3 transcript_cli.py --stdout "$ARGUMENTS"` from the directory that contains `transcript_cli.py`.
+- Run exactly `python3 transcript_cli.py --json --allow-non-english "$ARGUMENTS"` from the directory that contains `transcript_cli.py`.
 - For URL inputs, `transcript_cli.py` is the only supported transcript-ingestion path.
-- Treat the full stdout as the primary source text.
-- Read the source text carefully before drafting anything.
+- Treat the JSON stdout from that command as the transcript contract for this workflow.
+- Read the structured transcript output carefully before drafting anything.
 - Keep the article grounded in the transcript.
 - Do not add factual claims that are not supported by the source text.
 - For strong claims about products, benchmarks, security issues, or other contested points, make it clear that they are the speaker's claims or that they were presented that way in the talk.
 - Do not run `yt-dlp` directly, do not try alternative extractor arguments, do not retry with different subtitle languages, and do not search for or switch to local `.vtt` files as an improvised fallback for URL inputs.
 - If transcript extraction fails, is empty, or is too weak to support a real article, stop with a concise error instead of guessing.
-- If the failure indicates that only non-English subtitles are available, report that clearly and stop; do not translate, summarize from, or continue with a non-English transcript unless the user explicitly asks for that workflow in a future revision.
+- If the structured transcript metadata says `language` is `en`, use the cleaned transcript text directly as the source text for the article.
+- If the structured transcript metadata says `language` is not `en`, first convert the cleaned transcript text into clear, faithful English prose, then use that English translation as the source text for outlining and article writing.
+- Keep the final blog post in English. Do not add a source-language disclosure block or a note that the transcript was translated unless the user explicitly asks for that behavior.
 
 ## 3. Read the style reference
 
