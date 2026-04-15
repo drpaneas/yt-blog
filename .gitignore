@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.vtt
+*.clean.txt
+youtube-blog-*.md
+.venv/
+venv/
+.cursor/
+.qodo/
+.DS_Store
