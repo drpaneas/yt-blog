@@ -8,3 +8,5 @@ venv/
 .cursor/
 .qodo/
 .DS_Store
+channels.toml
+.superpowers/
