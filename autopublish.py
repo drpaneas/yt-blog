@@ -1,10 +1,11 @@
 import argparse
 import logging
+import re
 import shutil
 import subprocess
 import tomllib
-from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 from feed_checker import fetch_new_videos
 from hugo_formatter import add_hugo_front_matter
@@ -153,6 +154,86 @@ def clean_stale_blogs(video_id: str, youtube_repo: Path) -> None:
         stale.unlink()
 
 
+def _extract_video_id(url: str) -> str | None:
+    parsed = urlparse(url)
+    if parsed.hostname in ("www.youtube.com", "youtube.com", "m.youtube.com"):
+        if parsed.path == "/watch":
+            return parse_qs(parsed.query).get("v", [None])[0]
+        for prefix in ("/shorts/", "/live/", "/embed/"):
+            if parsed.path.startswith(prefix):
+                return parsed.path[len(prefix):].split("/")[0] or None
+    if parsed.hostname == "youtu.be":
+        return parsed.path.lstrip("/").split("/")[0] or None
+    return None
+
+
+def run_single(config_path: Path, video_url: str) -> int:
+    config = load_config(config_path)
+    state = StateManager(STATE_DIR)
+    logger = logging.getLogger(__name__)
+
+    blog_repo = config["blog_repo"]
+    blog_content_dir = config["blog_content_dir"]
+    blog_branch = config["blog_branch"]
+    llmwiki_dir = config["llmwiki_dir"]
+    youtube_repo = config["youtube_repo_dir"]
+
+    vid = _extract_video_id(video_url)
+    if not vid:
+        logger.error("Could not extract video ID from URL: %s", video_url)
+        return 1
+
+    if state.is_seen(vid):
+        logger.info("[%s] Already processed, skipping.", vid)
+        return 0
+
+    try:
+        verify_blog_repo(blog_repo, blog_branch)
+    except RuntimeError as exc:
+        logger.error("Blog repo check failed: %s", exc)
+        return 1
+
+    logger.info("[%s] Generating blog post for: %s", vid, video_url)
+    clean_stale_blogs(vid, youtube_repo)
+    blog_path = generate_blog_post(video_url, youtube_repo)
+    if blog_path is None:
+        logger.error("[%s] Blog generation failed", vid)
+        return 1
+
+    logger.info("[%s] Adding Hugo front matter to %s", vid, blog_path.name)
+    extracted_title = add_hugo_front_matter(
+        blog_path,
+        categories=config["hugo_categories"],
+        tags=config["hugo_tags"],
+    )
+
+    logger.info("[%s] Copying to blog repo: %s", vid, blog_path.name)
+    dest = blog_repo / blog_content_dir / blog_path.name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(blog_path, dest)
+
+    if llmwiki_dir is not None:
+        logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_path.name)
+        wiki_dest = llmwiki_dir / "raw" / blog_path.name
+        shutil.copy2(blog_path, wiki_dest)
+        logger.info("[%s] Updating wiki...", vid)
+        update_wiki(blog_path.name, llmwiki_dir)
+
+    logger.info("Pushing to blog repo...")
+    if not push_blog_repo(blog_repo, blog_content_dir, [extracted_title]):
+        logger.error("Git push failed - will not mark as seen")
+        return 1
+
+    state.mark_seen(vid, {
+        "title": extracted_title,
+        "filename": blog_path.name,
+        "channel": "manual",
+        "published": True,
+    })
+    logger.info("[%s] Done! Published: %s", vid, extracted_title)
+    return 0
+
+
 def run(config_path: Path, dry_run: bool = False) -> int:
     config = load_config(config_path)
     state = StateManager(STATE_DIR)
@@ -281,6 +362,10 @@ def main() -> int:
         description="Auto-publish YouTube video blog posts",
     )
     parser.add_argument(
+        "--url",
+        help="Process a single YouTube video URL (skips RSS polling and relevance filter)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show what would be processed without making changes",
@@ -298,6 +383,8 @@ def main() -> int:
     )
     args = parser.parse_args()
     setup_logging(verbose=args.verbose)
+    if args.url:
+        return run_single(args.config, args.url)
     return run(args.config, dry_run=args.dry_run)
 
 
