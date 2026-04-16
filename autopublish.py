@@ -157,7 +157,7 @@ def clean_stale_blogs(video_id: str, youtube_repo: Path) -> None:
 def _extract_video_id(url: str) -> str | None:
     parsed = urlparse(url)
     if parsed.hostname in ("www.youtube.com", "youtube.com", "m.youtube.com"):
-        if parsed.path == "/watch":
+        if parsed.path.rstrip("/") == "/watch":
             return parse_qs(parsed.query).get("v", [None])[0]
         for prefix in ("/shorts/", "/live/", "/embed/"):
             if parsed.path.startswith(prefix):
@@ -167,7 +167,7 @@ def _extract_video_id(url: str) -> str | None:
     return None
 
 
-def run_single(config_path: Path, video_url: str) -> int:
+def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
     config = load_config(config_path)
     state = StateManager(STATE_DIR)
     logger = logging.getLogger(__name__)
@@ -183,8 +183,8 @@ def run_single(config_path: Path, video_url: str) -> int:
         logger.error("Could not extract video ID from URL: %s", video_url)
         return 1
 
-    if state.is_seen(vid):
-        logger.info("[%s] Already processed, skipping.", vid)
+    if state.is_seen(vid) and not force:
+        logger.info("[%s] Already processed, skipping. Use --force to reprocess.", vid)
         return 0
 
     try:
@@ -215,6 +215,7 @@ def run_single(config_path: Path, video_url: str) -> int:
     if llmwiki_dir is not None:
         logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_path.name)
         wiki_dest = llmwiki_dir / "raw" / blog_path.name
+        wiki_dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(blog_path, wiki_dest)
         logger.info("[%s] Updating wiki...", vid)
         update_wiki(blog_path.name, llmwiki_dir)
@@ -317,6 +318,7 @@ def run(config_path: Path, dry_run: bool = False) -> int:
         if llmwiki_dir is not None:
             logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_path.name)
             wiki_dest = llmwiki_dir / "raw" / blog_path.name
+            wiki_dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(blog_path, wiki_dest)
             logger.info("[%s] Updating wiki...", vid)
             update_wiki(blog_path.name, llmwiki_dir)
@@ -366,9 +368,14 @@ def main() -> int:
         help="Process a single YouTube video URL (skips RSS polling and relevance filter)",
     )
     parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Reprocess a video even if already seen (only with --url)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Show what would be processed without making changes",
+        help="Show what would be processed without making changes (not compatible with --url)",
     )
     parser.add_argument(
         "--verbose", "-v",
@@ -384,7 +391,11 @@ def main() -> int:
     args = parser.parse_args()
     setup_logging(verbose=args.verbose)
     if args.url:
-        return run_single(args.config, args.url)
+        if args.dry_run:
+            parser.error("--dry-run cannot be used with --url")
+        return run_single(args.config, args.url, force=args.force)
+    if args.force:
+        parser.error("--force can only be used with --url")
     return run(args.config, dry_run=args.dry_run)
 
 
