@@ -98,6 +98,9 @@ def _fetch_via_ytdlp(channel_id: str) -> list[dict] | None:
     return entries if entries else None
 
 
+MAX_VIDEOS_PER_CHANNEL = 3
+
+
 def fetch_new_videos(channels: list[dict]) -> list[dict]:
     all_videos = []
     for ch in channels:
@@ -110,6 +113,7 @@ def fetch_new_videos(channels: list[dict]) -> list[dict]:
         if entries is None:
             logger.error("Failed to fetch videos for %s via both RSS and yt-dlp", ch["name"])
             continue
+        entries = entries[:MAX_VIDEOS_PER_CHANNEL]
         for entry in entries:
             entry["channel"] = ch["name"]
         all_videos.extend(entries)
