@@ -48,6 +48,24 @@ class TestParseAtomFeed(unittest.TestCase):
         with self.assertRaises(Exception):
             parse_atom_feed("not xml at all <<<")
 
+    def test_skips_entry_with_empty_video_id(self):
+        xml = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015"
+      xmlns="http://www.w3.org/2005/Atom">
+  <title>Test</title>
+  <entry>
+    <yt:videoId></yt:videoId>
+    <title>No ID</title>
+  </entry>
+  <entry>
+    <yt:videoId>real123</yt:videoId>
+    <title>Has ID</title>
+  </entry>
+</feed>"""
+        entries = parse_atom_feed(xml)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["video_id"], "real123")
+
 
 class TestFetchViaRss(unittest.TestCase):
     @patch("feed_checker.urllib.request.urlopen")
@@ -68,15 +86,28 @@ class TestFetchViaRss(unittest.TestCase):
         self.assertIsNone(_fetch_via_rss("UCbroken"))
 
     @patch("feed_checker.urllib.request.urlopen")
-    def test_returns_none_on_error_page(self, mock_urlopen):
+    def test_returns_none_on_non_atom_response(self, mock_urlopen):
         mock_resp = MagicMock()
-        mock_resp.status = 200
-        mock_resp.read.return_value = b"<title>Error 404 (Not Found)!!1</title>"
+        mock_resp.read.return_value = b"<html><title>Error 404</title></html>"
         mock_resp.__enter__ = lambda s: s
         mock_resp.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_resp
 
         self.assertIsNone(_fetch_via_rss("UCbroken"))
+
+    @patch("feed_checker.urllib.request.urlopen")
+    def test_returns_none_on_valid_but_empty_feed(self, mock_urlopen):
+        empty_feed = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Empty Channel</title>
+</feed>""".encode("utf-8")
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = empty_feed
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        self.assertIsNone(_fetch_via_rss("UCempty"))
 
 
 class TestFetchViaYtdlp(unittest.TestCase):
@@ -101,6 +132,33 @@ class TestFetchViaYtdlp(unittest.TestCase):
     def test_returns_none_when_ytdlp_missing(self, mock_run):
         mock_run.side_effect = FileNotFoundError("yt-dlp not found")
         self.assertIsNone(_fetch_via_ytdlp("UCtest"))
+
+    @patch("feed_checker.subprocess.run")
+    def test_prefers_webpage_url(self, mock_run):
+        line = json.dumps({
+            "id": "vid1",
+            "title": "Test",
+            "url": "https://internal-redirect/vid1",
+            "webpage_url": "https://www.youtube.com/watch?v=vid1",
+        })
+        mock_run.return_value = MagicMock(returncode=0, stdout=line, stderr="")
+        entries = _fetch_via_ytdlp("UCtest")
+        self.assertEqual(entries[0]["url"], "https://www.youtube.com/watch?v=vid1")
+
+    @patch("feed_checker.subprocess.run")
+    def test_constructs_url_when_both_missing(self, mock_run):
+        line = json.dumps({"id": "vid1", "title": "Test"})
+        mock_run.return_value = MagicMock(returncode=0, stdout=line, stderr="")
+        entries = _fetch_via_ytdlp("UCtest")
+        self.assertEqual(entries[0]["url"], "https://www.youtube.com/watch?v=vid1")
+
+    @patch("feed_checker.subprocess.run")
+    def test_skips_malformed_json_lines(self, mock_run):
+        lines = "not json\n" + json.dumps({"id": "vid1", "title": "Good"})
+        mock_run.return_value = MagicMock(returncode=0, stdout=lines, stderr="")
+        entries = _fetch_via_ytdlp("UCtest")
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["video_id"], "vid1")
 
 
 class TestFetchNewVideos(unittest.TestCase):
@@ -137,3 +195,24 @@ class TestFetchNewVideos(unittest.TestCase):
         channels = [{"name": "Dead", "channel_id": "UCdead"}]
         results = fetch_new_videos(channels)
         self.assertEqual(results, [])
+
+    @patch("feed_checker._fetch_via_ytdlp")
+    @patch("feed_checker._fetch_via_rss")
+    def test_mixed_channels_rss_and_ytdlp(self, mock_rss, mock_ytdlp):
+        def rss_side_effect(channel_id):
+            if channel_id == "UCgood":
+                return [{"video_id": "rss1", "title": "RSS", "url": "...", "published": ""}]
+            return None
+
+        mock_rss.side_effect = rss_side_effect
+        mock_ytdlp.return_value = [
+            {"video_id": "yt1", "title": "YT-DLP", "url": "...", "published": ""},
+        ]
+        channels = [
+            {"name": "RSS Channel", "channel_id": "UCgood"},
+            {"name": "Fallback Channel", "channel_id": "UCbad"},
+        ]
+        results = fetch_new_videos(channels)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0]["channel"], "RSS Channel")
+        self.assertEqual(results[1]["channel"], "Fallback Channel")

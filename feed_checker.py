@@ -23,8 +23,11 @@ def parse_atom_feed(xml_text: str) -> list[dict]:
         published_el = entry.find(f"{{{ATOM_NS}}}published")
         if video_id_el is None or title_el is None:
             continue
+        vid_text = video_id_el.text
+        if not vid_text or not vid_text.strip():
+            continue
         entries.append({
-            "video_id": video_id_el.text.strip(),
+            "video_id": vid_text.strip(),
             "title": title_el.text.strip() if title_el.text else "",
             "url": link_el.get("href", "") if link_el is not None else "",
             "published": published_el.text.strip() if published_el is not None and published_el.text else "",
@@ -32,21 +35,30 @@ def parse_atom_feed(xml_text: str) -> list[dict]:
     return entries
 
 
+def _is_valid_atom_feed(xml_text: str) -> bool:
+    try:
+        root = ET.fromstring(xml_text)
+        return root.tag == f"{{{ATOM_NS}}}feed"
+    except ET.ParseError:
+        return False
+
+
 def _fetch_via_rss(channel_id: str) -> list[dict] | None:
     url = FEED_URL.format(channel_id=channel_id)
     try:
         with urllib.request.urlopen(url, timeout=30) as resp:
-            if resp.status != 200:
-                return None
             xml_text = resp.read().decode("utf-8")
-    except OSError:
+    except OSError as exc:
+        logger.debug("RSS fetch failed for %s: %s", channel_id, exc)
         return None
-    if "<title>Error" in xml_text:
+    if not _is_valid_atom_feed(xml_text):
+        logger.debug("RSS response for %s is not a valid Atom feed", channel_id)
         return None
     try:
-        return parse_atom_feed(xml_text)
+        entries = parse_atom_feed(xml_text)
     except ET.ParseError:
         return None
+    return entries if entries else None
 
 
 def _fetch_via_ytdlp(channel_id: str) -> list[dict] | None:
@@ -80,7 +92,7 @@ def _fetch_via_ytdlp(channel_id: str) -> list[dict] | None:
         entries.append({
             "video_id": vid,
             "title": item.get("title", ""),
-            "url": item.get("url", f"https://www.youtube.com/watch?v={vid}"),
+            "url": item.get("webpage_url") or item.get("url") or f"https://www.youtube.com/watch?v={vid}",
             "published": item.get("upload_date", ""),
         })
     return entries if entries else None
