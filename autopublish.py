@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import tomllib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -334,6 +335,8 @@ def run(config_path: Path, dry_run: bool = False) -> int:
 
     stats = {"skipped_irrelevant": 0, "failed": 0, "published": 0}
 
+    # Phase 1: Filter (sequential)
+    approved = []
     for video in candidates:
         vid = video["video_id"]
         title = video["title"]
@@ -360,20 +363,74 @@ def run(config_path: Path, dry_run: bool = False) -> int:
             stats["skipped_irrelevant"] += 1
             continue
 
-        logger.info("[%s] AI-related! Processing: %s", vid, title)
-        search_dirs = [youtube_repo, blog_repo / blog_content_dir]
-        if llmwiki_dir is not None:
-            search_dirs.append(llmwiki_dir / "raw")
-        blog_path = _find_existing_blog(vid, *search_dirs)
-        if blog_path is not None:
-            logger.info("[%s] Found existing blog file: %s, skipping generation", vid, blog_path.name)
+        approved.append(video)
+
+    if dry_run:
+        return 0
+
+    if not approved:
+        logger.info("No new AI-related videos to process.")
+        logger.info(
+            "Run complete: %d channels polled, %d new videos, "
+            "0 published, %d skipped (not AI), %d failed",
+            len(config["channels"]),
+            len(candidates),
+            stats["skipped_irrelevant"],
+            stats["failed"],
+        )
+        return 0
+
+    # Phase 2: Generate (parallel)
+    search_dirs = [youtube_repo, blog_repo / blog_content_dir]
+    if llmwiki_dir is not None:
+        search_dirs.append(llmwiki_dir / "raw")
+
+    generation_results = {}
+    videos_needing_generation = []
+
+    for video in approved:
+        vid = video["video_id"]
+        existing = _find_existing_blog(vid, *search_dirs)
+        if existing is not None:
+            logger.info("[%s] Found existing blog file: %s, skipping generation", vid, existing.name)
+            generation_results[vid] = existing
         else:
-            logger.info("[%s] Generating blog post for: %s", vid, url)
-            blog_path = generate_blog_post(url, vid, youtube_repo)
-            if blog_path is None:
-                logger.error("[%s] Blog generation failed, skipping for retry", vid)
-                stats["failed"] += 1
-                continue
+            videos_needing_generation.append(video)
+
+    max_parallel = config["max_parallel"]
+    if videos_needing_generation:
+        logger.info(
+            "Generating %d blog posts (max %d parallel)...",
+            len(videos_needing_generation),
+            max_parallel,
+        )
+        with ThreadPoolExecutor(max_workers=max_parallel) as pool:
+            futures = {
+                pool.submit(generate_blog_post, v["url"], v["video_id"], youtube_repo): v
+                for v in videos_needing_generation
+            }
+            for future in as_completed(futures):
+                video = futures[future]
+                vid = video["video_id"]
+                try:
+                    blog_path = future.result()
+                except Exception as exc:
+                    logger.error("[%s] Blog generation raised: %s", vid, exc)
+                    blog_path = None
+                if blog_path is None:
+                    logger.error("[%s] Blog generation failed, skipping for retry", vid)
+                    stats["failed"] += 1
+                else:
+                    logger.info("[%s] Blog generated: %s", vid, blog_path.name)
+                    generation_results[vid] = blog_path
+
+    # Phase 3: Publish (sequential)
+    for video in approved:
+        vid = video["video_id"]
+        title = video["title"]
+        blog_path = generation_results.get(vid)
+        if blog_path is None:
+            continue
 
         has_front_matter = blog_path.read_text(encoding="utf-8").startswith("+++\n")
         if has_front_matter:
@@ -422,9 +479,6 @@ def run(config_path: Path, dry_run: bool = False) -> int:
             "published": True,
         })
         stats["published"] += 1
-
-    if dry_run:
-        return 0
 
     logger.info(
         "Run complete: %d channels polled, %d new videos, "
