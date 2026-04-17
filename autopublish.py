@@ -300,9 +300,7 @@ def run(config_path: Path, dry_run: bool = False) -> int:
         logger.info("Nothing new to process.")
         return 0
 
-    stats = {"skipped_irrelevant": 0, "failed": 0}
-    published_titles = []
-    published_entries = []
+    stats = {"skipped_irrelevant": 0, "failed": 0, "published": 0}
 
     for video in candidates:
         vid = video["video_id"]
@@ -361,7 +359,12 @@ def run(config_path: Path, dry_run: bool = False) -> int:
             logger.info("[%s] Copying to blog repo: %s", vid, blog_path.name)
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(blog_path, dest)
-        published_titles.append(extracted_title)
+
+        logger.info("[%s] Committing to blog repo...", vid)
+        if not push_blog_repo(blog_repo, blog_content_dir, [extracted_title]):
+            logger.error("[%s] Git commit failed - will not mark as seen", vid)
+            stats["failed"] += 1
+            continue
 
         if llmwiki_dir is not None:
             wiki_dest = llmwiki_dir / "raw" / blog_path.name
@@ -374,36 +377,23 @@ def run(config_path: Path, dry_run: bool = False) -> int:
                 logger.info("[%s] Updating wiki...", vid)
                 update_wiki(blog_path.name, llmwiki_dir)
 
-        published_entries.append({
-            "video_id": vid,
+        state.mark_seen(vid, {
             "title": title,
             "filename": blog_path.name,
             "channel": video["channel"],
+            "published": True,
         })
+        stats["published"] += 1
 
     if dry_run:
         return 0
-
-    if published_titles:
-        logger.info("Pushing %d new posts to blog repo...", len(published_titles))
-        if not push_blog_repo(blog_repo, blog_content_dir, published_titles):
-            logger.error("Git push failed - entries will not be marked as seen")
-            return 1
-
-        for entry in published_entries:
-            state.mark_seen(entry["video_id"], {
-                "title": entry["title"],
-                "filename": entry["filename"],
-                "channel": entry["channel"],
-                "published": True,
-            })
 
     logger.info(
         "Run complete: %d channels polled, %d new videos, "
         "%d published, %d skipped (not AI), %d failed",
         len(config["channels"]),
         len(candidates),
-        len(published_titles),
+        stats["published"],
         stats["skipped_irrelevant"],
         stats["failed"],
     )
