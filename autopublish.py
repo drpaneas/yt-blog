@@ -98,11 +98,12 @@ def generate_blog_post(video_url: str, video_id: str, youtube_repo: Path) -> Pat
     return max(matches, key=lambda p: p.stat().st_mtime)
 
 
-def push_blog_repo(blog_repo: Path, content_dir: str, titles: list[str]) -> bool:
+def push_blog_repo(blog_repo: Path, file_path: Path, titles: list[str]) -> bool:
     logger = logging.getLogger(__name__)
     try:
+        rel_path = file_path.relative_to(blog_repo)
         subprocess.run(
-            ["git", "add", content_dir + "/"],
+            ["git", "add", str(rel_path)],
             cwd=blog_repo,
             check=True,
             capture_output=True,
@@ -250,6 +251,7 @@ def _generate_ai_tags(file_path: Path) -> list[str]:
             [
                 "claude", "-p", prompt,
                 "-d", str(file_path.parent),
+                "--dangerously-skip-permissions",
                 "--allowedTools", "Read",
             ],
             capture_output=True,
@@ -259,7 +261,9 @@ def _generate_ai_tags(file_path: Path) -> list[str]:
         if result.returncode == 0 and result.stdout.strip():
             raw = result.stdout.strip().split("\n")[0]
             tags = [t.strip().lower() for t in raw.split(",") if t.strip()]
+            tags = [re.sub(r"\s+", "-", t) for t in tags]
             tags = [re.sub(r"[^a-z0-9-]", "", t) for t in tags]
+            tags = [re.sub(r"-+", "-", t).strip("-") for t in tags]
             tags = [t for t in tags if t][:5]
             logger.info("AI-generated tags: %s", tags)
             return tags
@@ -270,7 +274,9 @@ def _generate_ai_tags(file_path: Path) -> list[str]:
 
 def _find_existing_blog(video_id: str, *search_dirs: Path) -> Path | None:
     for directory in search_dirs:
-        matches = list(directory.glob(f"youtube-blog-*-{video_id}.md"))
+        if not directory.exists():
+            continue
+        matches = list(directory.rglob(f"youtube-blog-*-{video_id}.md"))
         if matches:
             return max(matches, key=lambda p: p.stat().st_mtime)
     return None
@@ -379,7 +385,7 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
 
     if blog_copied:
         logger.info("[%s] Committing to blog repo...", vid)
-        if not push_blog_repo(blog_repo, blog_content_dir, [extracted_title]):
+        if not push_blog_repo(blog_repo, dest, [extracted_title]):
             logger.error("[%s] Git commit failed - will not mark as seen", vid)
             return 1
 
@@ -542,7 +548,7 @@ def run(config_path: Path, dry_run: bool = False) -> int:
 
         if blog_copied:
             logger.info("[%s] Committing to blog repo...", vid)
-            if not push_blog_repo(blog_repo, blog_content_dir, [extracted_title]):
+            if not push_blog_repo(blog_repo, dest, [extracted_title]):
                 logger.error("[%s] Git commit failed - will not mark as seen", vid)
                 stats["failed"] += 1
                 continue
