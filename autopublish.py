@@ -104,15 +104,16 @@ def push_blog_repo(blog_repo: Path, content_dir: str, titles: list[str]) -> bool
             check=True,
             capture_output=True,
         )
-        subprocess.run(
-            ["git", "push"],
-            cwd=blog_repo,
-            check=True,
-            capture_output=True,
-        )
+        # TODO: re-enable push when ready
+        # subprocess.run(
+        #     ["git", "push"],
+        #     cwd=blog_repo,
+        #     check=True,
+        #     capture_output=True,
+        # )
         return True
     except subprocess.CalledProcessError as exc:
-        logging.error("Git push failed: %s", exc.stderr)
+        logging.error("Git commit failed: %s", exc.stderr)
         return False
 
 
@@ -148,10 +149,11 @@ def update_wiki(filename: str, llmwiki_dir: Path) -> None:
         logger.error("Wiki lint failed: %s", exc)
 
 
-def clean_stale_blogs(video_id: str, youtube_repo: Path) -> None:
-    for stale in youtube_repo.glob(f"youtube-blog-*-{video_id}.md"):
-        logging.info("Removing stale file: %s", stale.name)
-        stale.unlink()
+def _find_existing_blog(video_id: str, youtube_repo: Path) -> Path | None:
+    matches = list(youtube_repo.glob(f"youtube-blog-*-{video_id}.md"))
+    if matches:
+        return max(matches, key=lambda p: p.stat().st_mtime)
+    return None
 
 
 def _extract_video_id(url: str) -> str | None:
@@ -193,32 +195,51 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
         logger.error("Blog repo check failed: %s", exc)
         return 1
 
-    logger.info("[%s] Generating blog post for: %s", vid, video_url)
-    clean_stale_blogs(vid, youtube_repo)
-    blog_path = generate_blog_post(video_url, youtube_repo)
-    if blog_path is None:
-        logger.error("[%s] Blog generation failed", vid)
-        return 1
+    blog_path = _find_existing_blog(vid, youtube_repo)
+    if blog_path is not None:
+        logger.info("[%s] Found existing blog file: %s, skipping generation", vid, blog_path.name)
+    else:
+        logger.info("[%s] Generating blog post for: %s", vid, video_url)
+        blog_path = generate_blog_post(video_url, youtube_repo)
+        if blog_path is None:
+            logger.error("[%s] Blog generation failed", vid)
+            return 1
 
-    logger.info("[%s] Adding Hugo front matter to %s", vid, blog_path.name)
-    extracted_title = add_hugo_front_matter(
-        blog_path,
-        categories=config["hugo_categories"],
-        tags=config["hugo_tags"],
-    )
+    has_front_matter = blog_path.read_text(encoding="utf-8").startswith("+++\n")
+    if has_front_matter:
+        logger.info("[%s] Hugo front matter already present, skipping", vid)
+        lines = blog_path.read_text(encoding="utf-8").split("\n")
+        extracted_title = blog_path.stem
+        for line in lines:
+            if line.startswith("title = "):
+                extracted_title = line.split('"')[1] if '"' in line else blog_path.stem
+                break
+    else:
+        logger.info("[%s] Adding Hugo front matter to %s", vid, blog_path.name)
+        extracted_title = add_hugo_front_matter(
+            blog_path,
+            categories=config["hugo_categories"],
+            tags=config["hugo_tags"],
+        )
 
-    logger.info("[%s] Copying to blog repo: %s", vid, blog_path.name)
     dest = blog_repo / blog_content_dir / blog_path.name
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(blog_path, dest)
+    if dest.exists():
+        logger.info("[%s] Already in blog repo, skipping copy", vid)
+    else:
+        logger.info("[%s] Copying to blog repo: %s", vid, blog_path.name)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(blog_path, dest)
 
     if llmwiki_dir is not None:
-        logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_path.name)
         wiki_dest = llmwiki_dir / "raw" / blog_path.name
-        wiki_dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(blog_path, wiki_dest)
-        logger.info("[%s] Updating wiki...", vid)
-        update_wiki(blog_path.name, llmwiki_dir)
+        if wiki_dest.exists():
+            logger.info("[%s] Already in LLM wiki raw, skipping copy", vid)
+        else:
+            logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_path.name)
+            wiki_dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(blog_path, wiki_dest)
+            logger.info("[%s] Updating wiki...", vid)
+            update_wiki(blog_path.name, llmwiki_dir)
 
     logger.info("Pushing to blog repo...")
     if not push_blog_repo(blog_repo, blog_content_dir, [extracted_title]):
@@ -294,34 +315,49 @@ def run(config_path: Path, dry_run: bool = False) -> int:
             stats["skipped_irrelevant"] += 1
             continue
 
-        logger.info("[%s] AI-related! Generating blog post for: %s", vid, title)
-        clean_stale_blogs(vid, youtube_repo)
-        blog_path = generate_blog_post(url, youtube_repo)
-        if blog_path is None:
-            logger.error("[%s] Blog generation failed, skipping for retry", vid)
-            stats["failed"] += 1
-            continue
+        logger.info("[%s] AI-related! Processing: %s", vid, title)
+        blog_path = _find_existing_blog(vid, youtube_repo)
+        if blog_path is not None:
+            logger.info("[%s] Found existing blog file: %s, skipping generation", vid, blog_path.name)
+        else:
+            logger.info("[%s] Generating blog post for: %s", vid, url)
+            blog_path = generate_blog_post(url, youtube_repo)
+            if blog_path is None:
+                logger.error("[%s] Blog generation failed, skipping for retry", vid)
+                stats["failed"] += 1
+                continue
 
-        logger.info("[%s] Adding Hugo front matter to %s", vid, blog_path.name)
-        extracted_title = add_hugo_front_matter(
-            blog_path,
-            categories=config["hugo_categories"],
-            tags=config["hugo_tags"],
-        )
+        has_front_matter = blog_path.read_text(encoding="utf-8").startswith("+++\n")
+        if has_front_matter:
+            logger.info("[%s] Hugo front matter already present, skipping", vid)
+            extracted_title = title
+        else:
+            logger.info("[%s] Adding Hugo front matter to %s", vid, blog_path.name)
+            extracted_title = add_hugo_front_matter(
+                blog_path,
+                categories=config["hugo_categories"],
+                tags=config["hugo_tags"],
+            )
 
-        logger.info("[%s] Copying to blog repo: %s", vid, blog_path.name)
         dest = blog_repo / blog_content_dir / blog_path.name
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(blog_path, dest)
+        if dest.exists():
+            logger.info("[%s] Already in blog repo, skipping copy", vid)
+        else:
+            logger.info("[%s] Copying to blog repo: %s", vid, blog_path.name)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(blog_path, dest)
         published_titles.append(extracted_title)
 
         if llmwiki_dir is not None:
-            logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_path.name)
             wiki_dest = llmwiki_dir / "raw" / blog_path.name
-            wiki_dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(blog_path, wiki_dest)
-            logger.info("[%s] Updating wiki...", vid)
-            update_wiki(blog_path.name, llmwiki_dir)
+            if wiki_dest.exists():
+                logger.info("[%s] Already in LLM wiki raw, skipping copy", vid)
+            else:
+                logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_path.name)
+                wiki_dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(blog_path, wiki_dest)
+                logger.info("[%s] Updating wiki...", vid)
+                update_wiki(blog_path.name, llmwiki_dir)
 
         published_entries.append({
             "video_id": vid,
