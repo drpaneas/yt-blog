@@ -179,6 +179,95 @@ def update_wiki(llmwiki_dir: Path) -> None:
     #     logger.error("Wiki lint failed: %s", exc)
 
 
+def _slugify_channel(name: str) -> str:
+    slug = name.lower().strip()
+    slug = re.sub(r"[^a-z0-9\s-]", "", slug)
+    slug = re.sub(r"[\s]+", "-", slug)
+    slug = re.sub(r"-+", "-", slug)
+    return slug.strip("-") or "unknown"
+
+
+def _detect_channel_name(video_url: str) -> str:
+    logger = logging.getLogger(__name__)
+    prompt = (
+        "What is the YouTube channel name for this video? "
+        "Return only the channel name, nothing else. "
+        f"URL: {video_url}"
+    )
+    try:
+        result = subprocess.run(
+            ["claude", "-p", prompt],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            name = result.stdout.strip().split("\n")[0].strip()
+            logger.info("Detected channel name: %s", name)
+            return name
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        logger.warning("Channel detection failed: %s", exc)
+    return "manual"
+
+
+def _lint_markdown(file_path: Path) -> None:
+    logger = logging.getLogger(__name__)
+    prompt = (
+        f"Read the markdown file at {file_path.name} and fix any markdown "
+        "formatting issues in-place. Fix things like: inconsistent heading "
+        "levels, missing blank lines around headings/lists/code blocks, "
+        "trailing whitespace, and malformed links. Do not change the content, "
+        "only fix formatting."
+    )
+    try:
+        result = subprocess.run(
+            [
+                "claude", "-p", prompt,
+                "-d", str(file_path.parent),
+                "--dangerously-skip-permissions",
+                "--allowedTools", "Read,Write,Edit",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        logger.debug("Markdown lint stdout:\n%s", result.stdout)
+        if result.returncode != 0:
+            logger.warning("Markdown lint returned exit code %d", result.returncode)
+    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+        logger.warning("Markdown lint failed: %s", exc)
+
+
+def _generate_ai_tags(file_path: Path) -> list[str]:
+    logger = logging.getLogger(__name__)
+    prompt = (
+        f"Read the blog post at {file_path.name} and return up to 5 short "
+        "lowercase tags that describe the content. Return only a comma-separated "
+        "list of tags, nothing else. Example: kubernetes, security, llm"
+    )
+    try:
+        result = subprocess.run(
+            [
+                "claude", "-p", prompt,
+                "-d", str(file_path.parent),
+                "--allowedTools", "Read",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            raw = result.stdout.strip().split("\n")[0]
+            tags = [t.strip().lower() for t in raw.split(",") if t.strip()]
+            tags = [re.sub(r"[^a-z0-9-]", "", t) for t in tags]
+            tags = [t for t in tags if t][:5]
+            logger.info("AI-generated tags: %s", tags)
+            return tags
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        logger.warning("AI tag generation failed: %s", exc)
+    return []
+
+
 def _find_existing_blog(video_id: str, *search_dirs: Path) -> Path | None:
     for directory in search_dirs:
         matches = list(directory.glob(f"youtube-blog-*-{video_id}.md"))
@@ -226,9 +315,14 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
         logger.error("Blog repo check failed: %s", exc)
         return 1
 
+    logger.info("[%s] Detecting channel name...", vid)
+    channel_name = _detect_channel_name(video_url)
+    channel_slug = _slugify_channel(channel_name)
+    logger.info("[%s] Channel: %s (slug: %s)", vid, channel_name, channel_slug)
+
     if force:
         logger.info("[%s] --force: removing existing files before regenerating", vid)
-        for d in [youtube_repo, blog_repo / blog_content_dir]:
+        for d in [youtube_repo, blog_repo / blog_content_dir / channel_slug, blog_repo / blog_content_dir]:
             for f in d.glob(f"youtube-blog-*-{vid}.md"):
                 logger.info("[%s] Deleting: %s", vid, f)
                 f.unlink()
@@ -237,7 +331,7 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
                 logger.info("[%s] Deleting: %s", vid, f)
                 f.unlink()
 
-    search_dirs = [youtube_repo, blog_repo / blog_content_dir]
+    search_dirs = [youtube_repo, blog_repo / blog_content_dir / channel_slug, blog_repo / blog_content_dir]
     if llmwiki_dir is not None:
         search_dirs.append(llmwiki_dir / "raw")
     blog_path = _find_existing_blog(vid, *search_dirs)
@@ -250,7 +344,7 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
             logger.error("[%s] Blog generation failed", vid)
             return 1
 
-    dest = blog_repo / blog_content_dir / blog_path.name
+    dest = blog_repo / blog_content_dir / channel_slug / blog_path.name
     blog_copied = False
     if dest.exists():
         logger.info("[%s] Already in blog repo, skipping copy", vid)
@@ -261,11 +355,22 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
         blog_copied = True
 
     if not dest.read_text(encoding="utf-8").startswith("+++\n"):
+        logger.info("[%s] Linting markdown...", vid)
+        _lint_markdown(dest)
+        logger.info("[%s] Generating AI tags...", vid)
+        ai_tags = _generate_ai_tags(dest)
+        all_tags = list(config["hugo_tags"]) + [channel_slug] + ai_tags
+        seen = set()
+        unique_tags = []
+        for t in all_tags:
+            if t not in seen:
+                seen.add(t)
+                unique_tags.append(t)
         logger.info("[%s] Adding Hugo front matter to %s", vid, dest.name)
         extracted_title = add_hugo_front_matter(
             dest,
             categories=config["hugo_categories"],
-            tags=config["hugo_tags"],
+            tags=unique_tags,
         )
         blog_copied = True
     else:
@@ -292,7 +397,7 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
     state.mark_seen(vid, {
         "title": extracted_title,
         "filename": blog_path.name,
-        "channel": "manual",
+        "channel": channel_name,
         "published": True,
     })
     logger.info("[%s] Done! Published: %s", vid, extracted_title)
@@ -349,15 +454,15 @@ def run(config_path: Path, dry_run: bool = False) -> int:
         return 0
 
     # Phase 2: Generate (parallel)
-    search_dirs = [youtube_repo, blog_repo / blog_content_dir]
-    if llmwiki_dir is not None:
-        search_dirs.append(llmwiki_dir / "raw")
-
     generation_results = {}
     videos_needing_generation = []
 
     for video in approved:
         vid = video["video_id"]
+        channel_slug = _slugify_channel(video["channel"])
+        search_dirs = [youtube_repo, blog_repo / blog_content_dir / channel_slug, blog_repo / blog_content_dir]
+        if llmwiki_dir is not None:
+            search_dirs.append(llmwiki_dir / "raw")
         existing = _find_existing_blog(vid, *search_dirs)
         if existing is not None:
             logger.info("[%s] Found existing blog file: %s, skipping generation", vid, existing.name)
@@ -396,26 +501,39 @@ def run(config_path: Path, dry_run: bool = False) -> int:
     for video in approved:
         vid = video["video_id"]
         title = video["title"]
+        channel_name = video["channel"]
+        channel_slug = _slugify_channel(channel_name)
         blog_path = generation_results.get(vid)
         if blog_path is None:
             continue
 
-        dest = blog_repo / blog_content_dir / blog_path.name
+        dest = blog_repo / blog_content_dir / channel_slug / blog_path.name
         blog_copied = False
         if dest.exists():
             logger.info("[%s] Already in blog repo, skipping copy", vid)
         else:
-            logger.info("[%s] Copying to blog repo: %s", vid, blog_path.name)
+            logger.info("[%s] Copying to blog repo: %s/%s", vid, channel_slug, blog_path.name)
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(blog_path, dest)
             blog_copied = True
 
         if not dest.read_text(encoding="utf-8").startswith("+++\n"):
+            logger.info("[%s] Linting markdown...", vid)
+            _lint_markdown(dest)
+            logger.info("[%s] Generating AI tags...", vid)
+            ai_tags = _generate_ai_tags(dest)
+            all_tags = list(config["hugo_tags"]) + [channel_slug] + ai_tags
+            seen = set()
+            unique_tags = []
+            for t in all_tags:
+                if t not in seen:
+                    seen.add(t)
+                    unique_tags.append(t)
             logger.info("[%s] Adding Hugo front matter to %s", vid, dest.name)
             extracted_title = add_hugo_front_matter(
                 dest,
                 categories=config["hugo_categories"],
-                tags=config["hugo_tags"],
+                tags=unique_tags,
             )
             blog_copied = True
         else:
@@ -443,7 +561,7 @@ def run(config_path: Path, dry_run: bool = False) -> int:
         state.mark_seen(vid, {
             "title": title,
             "filename": blog_path.name,
-            "channel": video["channel"],
+            "channel": channel_name,
             "published": True,
         })
         stats["published"] += 1
