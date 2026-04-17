@@ -122,11 +122,11 @@ def push_blog_repo(blog_repo: Path, content_dir: str, titles: list[str]) -> bool
         return False
 
 
-def update_wiki(filename: str, llmwiki_dir: Path) -> None:
+def update_wiki(llmwiki_dir: Path) -> None:
     logger = logging.getLogger(__name__)
     ingest_prompt = (
-        f"I just added {filename} to the raw folder. "
-        "Read it and update the wiki"
+        "I just added new sources to the raw folder. "
+        "Read them and update the wiki by ingesting all of them into it."
     )
     try:
         result = subprocess.run(
@@ -145,29 +145,31 @@ def update_wiki(filename: str, llmwiki_dir: Path) -> None:
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         logger.error("Wiki update failed: %s", exc)
 
-    lint_prompt = "please lint the wiki and fix any issues you find"
-    try:
-        result = subprocess.run(
-            [
-                "claude", "-p", lint_prompt,
-                "-d", str(llmwiki_dir),
-                "--dangerously-skip-permissions",
-                "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash(date +*)",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=600,
-            check=True,
-        )
-        logger.debug("Wiki lint stdout:\n%s", result.stdout)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        logger.error("Wiki lint failed: %s", exc)
+    # TODO: re-enable wiki lint when ready
+    # lint_prompt = "please lint the wiki and fix any issues you find"
+    # try:
+    #     result = subprocess.run(
+    #         [
+    #             "claude", "-p", lint_prompt,
+    #             "-d", str(llmwiki_dir),
+    #             "--dangerously-skip-permissions",
+    #             "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash(date +*)",
+    #         ],
+    #         capture_output=True,
+    #         text=True,
+    #         timeout=600,
+    #         check=True,
+    #     )
+    #     logger.debug("Wiki lint stdout:\n%s", result.stdout)
+    # except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+    #     logger.error("Wiki lint failed: %s", exc)
 
 
-def _find_existing_blog(video_id: str, youtube_repo: Path) -> Path | None:
-    matches = list(youtube_repo.glob(f"youtube-blog-*-{video_id}.md"))
-    if matches:
-        return max(matches, key=lambda p: p.stat().st_mtime)
+def _find_existing_blog(video_id: str, *search_dirs: Path) -> Path | None:
+    for directory in search_dirs:
+        matches = list(directory.glob(f"youtube-blog-*-{video_id}.md"))
+        if matches:
+            return max(matches, key=lambda p: p.stat().st_mtime)
     return None
 
 
@@ -210,7 +212,10 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
         logger.error("Blog repo check failed: %s", exc)
         return 1
 
-    blog_path = _find_existing_blog(vid, youtube_repo)
+    search_dirs = [youtube_repo, blog_repo / blog_content_dir]
+    if llmwiki_dir is not None:
+        search_dirs.append(llmwiki_dir / "raw")
+    blog_path = _find_existing_blog(vid, *search_dirs)
     if blog_path is not None:
         logger.info("[%s] Found existing blog file: %s, skipping generation", vid, blog_path.name)
     else:
@@ -262,7 +267,7 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
             wiki_dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(blog_path, wiki_dest)
             logger.info("[%s] Updating wiki...", vid)
-            update_wiki(blog_path.name, llmwiki_dir)
+            update_wiki(llmwiki_dir)
 
     state.mark_seen(vid, {
         "title": extracted_title,
@@ -332,7 +337,10 @@ def run(config_path: Path, dry_run: bool = False) -> int:
             continue
 
         logger.info("[%s] AI-related! Processing: %s", vid, title)
-        blog_path = _find_existing_blog(vid, youtube_repo)
+        search_dirs = [youtube_repo, blog_repo / blog_content_dir]
+        if llmwiki_dir is not None:
+            search_dirs.append(llmwiki_dir / "raw")
+        blog_path = _find_existing_blog(vid, *search_dirs)
         if blog_path is not None:
             logger.info("[%s] Found existing blog file: %s, skipping generation", vid, blog_path.name)
         else:
@@ -381,7 +389,7 @@ def run(config_path: Path, dry_run: bool = False) -> int:
                 wiki_dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(blog_path, wiki_dest)
                 logger.info("[%s] Updating wiki...", vid)
-                update_wiki(blog_path.name, llmwiki_dir)
+                update_wiki(llmwiki_dir)
 
         state.mark_seen(vid, {
             "title": title,
