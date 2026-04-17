@@ -70,17 +70,21 @@ def verify_blog_repo(blog_repo: Path, expected_branch: str) -> None:
 def generate_blog_post(video_url: str, youtube_repo: Path) -> Path | None:
     logger = logging.getLogger(__name__)
     before = set(youtube_repo.glob("youtube-blog-*.md"))
-    result = subprocess.run(
-        [
-            "claude", "-p", f"/youtube-blog {video_url}",
-            "-d", str(youtube_repo),
-            "--dangerously-skip-permissions",
-            "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash(python3 transcript_cli.py *),Bash(date +*)",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=600,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "claude", "-p", f"/youtube-blog {video_url}",
+                "-d", str(youtube_repo),
+                "--dangerously-skip-permissions",
+                "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash(python3 transcript_cli.py *),Bash(date +*)",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        logger.error("Blog generation timed out after 600s for %s", video_url)
+        return None
     logger.debug("claude stdout:\n%s", result.stdout)
     logger.debug("claude stderr:\n%s", result.stderr)
     if result.returncode != 0:
@@ -95,6 +99,7 @@ def generate_blog_post(video_url: str, youtube_repo: Path) -> Path | None:
 
 
 def push_blog_repo(blog_repo: Path, content_dir: str, titles: list[str]) -> bool:
+    logger = logging.getLogger(__name__)
     try:
         subprocess.run(
             ["git", "add", content_dir + "/"],
@@ -102,6 +107,15 @@ def push_blog_repo(blog_repo: Path, content_dir: str, titles: list[str]) -> bool
             check=True,
             capture_output=True,
         )
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=blog_repo,
+            capture_output=True,
+            text=True,
+        )
+        if not status.stdout.strip():
+            logger.info("Nothing new to commit in blog repo")
+            return True
         msg = "Add blog posts: " + ", ".join(titles)
         subprocess.run(
             ["git", "commit", "-m", msg],
@@ -118,7 +132,7 @@ def push_blog_repo(blog_repo: Path, content_dir: str, titles: list[str]) -> bool
         # )
         return True
     except subprocess.CalledProcessError as exc:
-        logging.error("Git commit failed: %s", exc.stderr)
+        logger.error("Git commit failed: %s", exc.stderr)
         return False
 
 
@@ -211,6 +225,17 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
     except RuntimeError as exc:
         logger.error("Blog repo check failed: %s", exc)
         return 1
+
+    if force:
+        logger.info("[%s] --force: removing existing files before regenerating", vid)
+        for d in [youtube_repo, blog_repo / blog_content_dir]:
+            for f in d.glob(f"youtube-blog-*-{vid}.md"):
+                logger.info("[%s] Deleting: %s", vid, f)
+                f.unlink()
+        if llmwiki_dir is not None:
+            for f in (llmwiki_dir / "raw").glob(f"youtube-blog-*-{vid}.md"):
+                logger.info("[%s] Deleting: %s", vid, f)
+                f.unlink()
 
     search_dirs = [youtube_repo, blog_repo / blog_content_dir]
     if llmwiki_dir is not None:
