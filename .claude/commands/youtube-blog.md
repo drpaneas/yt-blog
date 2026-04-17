@@ -37,7 +37,7 @@ Follow this workflow exactly.
 
 - Read `pedagogic.md` carefully.
 - Use it as a style reference, not as content to copy.
-- Match its teaching-first structure, direct tone, and use of lightweight boxed summaries.
+- Match its teaching-first structure and direct tone.
 - Ignore malformed, noisy, or contradictory examples in `pedagogic.md` if they conflict with the explicit writing rules in this command.
 
 ## 4. Build a source-specific outline before drafting
@@ -86,7 +86,7 @@ Writing rules:
 - Translate the source author's opinions into teachable ideas without losing the author's voice
 - Keep jargon when it is useful, but explain it on first mention
 - Use a guided explainer structure rather than a bare summary
-- Use lightweight ASCII boxes or diagrams when helpful
+- Do not use ASCII art boxes (e.g. `+----+` borders) for any section including the "In this post" summary; use plain Markdown bullet lists instead
 - Do not use Mermaid
 - Do not use `graph LR`
 - Review the draft like an experienced editor-in-chief from a serious technical magazine
