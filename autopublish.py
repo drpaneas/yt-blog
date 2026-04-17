@@ -30,6 +30,7 @@ def load_config(config_path: Path) -> dict:
         "llmwiki_dir": Path(llmwiki_raw).expanduser().resolve() if llmwiki_raw else None,
         "hugo_categories": hugo.get("categories", ["youtube"]),
         "hugo_tags": hugo.get("tags", ["ai", "youtube"]),
+        "max_parallel": paths.get("max_parallel", 1),
         "channels": raw.get("channel", []),
     }
 
@@ -67,9 +68,8 @@ def verify_blog_repo(blog_repo: Path, expected_branch: str) -> None:
         raise RuntimeError("Blog repo has uncommitted changes")
 
 
-def generate_blog_post(video_url: str, youtube_repo: Path) -> Path | None:
+def generate_blog_post(video_url: str, video_id: str, youtube_repo: Path) -> Path | None:
     logger = logging.getLogger(__name__)
-    before = set(youtube_repo.glob("youtube-blog-*.md"))
     try:
         result = subprocess.run(
             [
@@ -83,19 +83,18 @@ def generate_blog_post(video_url: str, youtube_repo: Path) -> Path | None:
             timeout=600,
         )
     except subprocess.TimeoutExpired:
-        logger.error("Blog generation timed out after 600s for %s", video_url)
+        logger.error("[%s] Blog generation timed out after 600s", video_id)
         return None
-    logger.debug("claude stdout:\n%s", result.stdout)
-    logger.debug("claude stderr:\n%s", result.stderr)
+    logger.debug("[%s] claude stdout:\n%s", video_id, result.stdout)
+    logger.debug("[%s] claude stderr:\n%s", video_id, result.stderr)
     if result.returncode != 0:
-        logger.error("Blog generation failed (exit %d): %s", result.returncode, result.stderr)
+        logger.error("[%s] Blog generation failed (exit %d): %s", video_id, result.returncode, result.stderr)
         return None
-    after = set(youtube_repo.glob("youtube-blog-*.md"))
-    new_files = after - before
-    if not new_files:
-        logger.error("Blog generation produced no new file")
+    matches = list(youtube_repo.glob(f"youtube-blog-*-{video_id}.md"))
+    if not matches:
+        logger.error("[%s] Blog generation produced no file matching video ID", video_id)
         return None
-    return max(new_files, key=lambda p: p.stat().st_mtime)
+    return max(matches, key=lambda p: p.stat().st_mtime)
 
 
 def push_blog_repo(blog_repo: Path, content_dir: str, titles: list[str]) -> bool:
@@ -245,7 +244,7 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
         logger.info("[%s] Found existing blog file: %s, skipping generation", vid, blog_path.name)
     else:
         logger.info("[%s] Generating blog post for: %s", vid, video_url)
-        blog_path = generate_blog_post(video_url, youtube_repo)
+        blog_path = generate_blog_post(video_url, vid, youtube_repo)
         if blog_path is None:
             logger.error("[%s] Blog generation failed", vid)
             return 1
@@ -370,7 +369,7 @@ def run(config_path: Path, dry_run: bool = False) -> int:
             logger.info("[%s] Found existing blog file: %s, skipping generation", vid, blog_path.name)
         else:
             logger.info("[%s] Generating blog post for: %s", vid, url)
-            blog_path = generate_blog_post(url, youtube_repo)
+            blog_path = generate_blog_post(url, vid, youtube_repo)
             if blog_path is None:
                 logger.error("[%s] Blog generation failed, skipping for retry", vid)
                 stats["failed"] += 1

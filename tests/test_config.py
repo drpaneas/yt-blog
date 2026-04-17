@@ -67,6 +67,23 @@ youtube_repo_dir = "/tmp/yt"
         self.assertEqual(config["hugo_categories"], ["youtube"])
         self.assertEqual(config["hugo_tags"], ["ai", "youtube"])
 
+    def test_max_parallel_default(self):
+        config = load_config(self._write_config("""
+[paths]
+blog_repo = "~/blog"
+youtube_repo_dir = "/tmp/yt"
+"""))
+        self.assertEqual(config["max_parallel"], 1)
+
+    def test_max_parallel_custom(self):
+        config = load_config(self._write_config("""
+[paths]
+blog_repo = "~/blog"
+youtube_repo_dir = "/tmp/yt"
+max_parallel = 5
+"""))
+        self.assertEqual(config["max_parallel"], 5)
+
     def test_optional_llmwiki(self):
         config = load_config(self._write_config("""
 [paths]

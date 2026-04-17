@@ -11,6 +11,8 @@ blog_content_dir = "content/post"
 blog_branch = "master"
 # Path to this youtube repo (for claude -d flag)
 youtube_repo_dir = "~/youtube"
+# Max parallel blog generation processes (default: 1 = sequential)
+# max_parallel = 5
 # Optional: path to LLM wiki project. Omit to skip wiki integration.
 # llmwiki_dir = "~/llmwiki"
 
