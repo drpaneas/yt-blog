@@ -77,10 +77,11 @@ youtube_repo_dir = "/tmp/yt"
 
     def test_max_parallel_custom(self):
         config = load_config(self._write_config("""
+max_parallel = 5
+
 [paths]
 blog_repo = "~/blog"
 youtube_repo_dir = "/tmp/yt"
-max_parallel = 5
 """))
         self.assertEqual(config["max_parallel"], 5)
 

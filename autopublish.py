@@ -31,7 +31,7 @@ def load_config(config_path: Path) -> dict:
         "llmwiki_dir": Path(llmwiki_raw).expanduser().resolve() if llmwiki_raw else None,
         "hugo_categories": hugo.get("categories", ["youtube"]),
         "hugo_tags": hugo.get("tags", ["ai", "youtube"]),
-        "max_parallel": paths.get("max_parallel", 1),
+        "max_parallel": raw.get("max_parallel", 1),
         "channels": raw.get("channel", []),
     }
 
