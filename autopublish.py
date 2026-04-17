@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 
 from feed_checker import fetch_new_videos
 from hugo_formatter import add_hugo_front_matter
-from relevance_filter import is_ai_related
+
 from state_manager import StateManager
 
 STATE_DIR = Path.home() / ".youtube-blog-automation"
@@ -333,34 +333,15 @@ def run(config_path: Path, dry_run: bool = False) -> int:
         logger.info("Nothing new to process.")
         return 0
 
-    stats = {"skipped_irrelevant": 0, "failed": 0, "published": 0}
+    stats = {"failed": 0, "published": 0}
 
-    # Phase 1: Filter (sequential)
     approved = []
     for video in candidates:
         vid = video["video_id"]
         title = video["title"]
-        url = video["url"]
-        logger.info("[%s] Checking relevance: %s", vid, title)
 
         if dry_run:
-            logger.info("[%s] [DRY RUN] Would check relevance for: %s (%s)", vid, title, url)
-            continue
-
-        relevant = is_ai_related(title)
-        if relevant is None:
-            logger.warning("[%s] Relevance check failed, skipping for retry", vid)
-            stats["failed"] += 1
-            continue
-        if not relevant:
-            logger.info("[%s] Not AI-related, skipping: %s", vid, title)
-            state.mark_seen(vid, {
-                "title": title,
-                "filename": "",
-                "channel": video["channel"],
-                "published": False,
-            })
-            stats["skipped_irrelevant"] += 1
+            logger.info("[%s] [DRY RUN] Would process: %s (%s)", vid, title, video["url"])
             continue
 
         approved.append(video)
@@ -372,10 +353,9 @@ def run(config_path: Path, dry_run: bool = False) -> int:
         logger.info("No new AI-related videos to process.")
         logger.info(
             "Run complete: %d channels polled, %d new videos, "
-            "0 published, %d skipped (not AI), %d failed",
+            "0 published, %d failed",
             len(config["channels"]),
             len(candidates),
-            stats["skipped_irrelevant"],
             stats["failed"],
         )
         return 0
@@ -482,11 +462,10 @@ def run(config_path: Path, dry_run: bool = False) -> int:
 
     logger.info(
         "Run complete: %d channels polled, %d new videos, "
-        "%d published, %d skipped (not AI), %d failed",
+        "%d published, %d failed",
         len(config["channels"]),
         len(candidates),
         stats["published"],
-        stats["skipped_irrelevant"],
         stats["failed"],
     )
     return 0
