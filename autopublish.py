@@ -250,23 +250,6 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
             logger.error("[%s] Blog generation failed", vid)
             return 1
 
-    has_front_matter = blog_path.read_text(encoding="utf-8").startswith("+++\n")
-    if has_front_matter:
-        logger.info("[%s] Hugo front matter already present, skipping", vid)
-        lines = blog_path.read_text(encoding="utf-8").split("\n")
-        extracted_title = blog_path.stem
-        for line in lines:
-            if line.startswith("title = "):
-                extracted_title = line.split('"')[1] if '"' in line else blog_path.stem
-                break
-    else:
-        logger.info("[%s] Adding Hugo front matter to %s", vid, blog_path.name)
-        extracted_title = add_hugo_front_matter(
-            blog_path,
-            categories=config["hugo_categories"],
-            tags=config["hugo_tags"],
-        )
-
     dest = blog_repo / blog_content_dir / blog_path.name
     blog_copied = False
     if dest.exists():
@@ -276,6 +259,18 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(blog_path, dest)
         blog_copied = True
+
+    if not dest.read_text(encoding="utf-8").startswith("+++\n"):
+        logger.info("[%s] Adding Hugo front matter to %s", vid, dest.name)
+        extracted_title = add_hugo_front_matter(
+            dest,
+            categories=config["hugo_categories"],
+            tags=config["hugo_tags"],
+        )
+        blog_copied = True
+    else:
+        logger.info("[%s] Hugo front matter already present", vid)
+        extracted_title = dest.stem
 
     if blog_copied:
         logger.info("[%s] Committing to blog repo...", vid)
@@ -290,7 +285,7 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
         else:
             logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_path.name)
             wiki_dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(blog_path, wiki_dest)
+            shutil.copy2(dest, wiki_dest)
             logger.info("[%s] Updating wiki...", vid)
             update_wiki(llmwiki_dir)
 
@@ -350,14 +345,7 @@ def run(config_path: Path, dry_run: bool = False) -> int:
         return 0
 
     if not approved:
-        logger.info("No new AI-related videos to process.")
-        logger.info(
-            "Run complete: %d channels polled, %d new videos, "
-            "0 published, %d failed",
-            len(config["channels"]),
-            len(candidates),
-            stats["failed"],
-        )
+        logger.info("No new videos to process.")
         return 0
 
     # Phase 2: Generate (parallel)
@@ -412,18 +400,6 @@ def run(config_path: Path, dry_run: bool = False) -> int:
         if blog_path is None:
             continue
 
-        has_front_matter = blog_path.read_text(encoding="utf-8").startswith("+++\n")
-        if has_front_matter:
-            logger.info("[%s] Hugo front matter already present, skipping", vid)
-            extracted_title = title
-        else:
-            logger.info("[%s] Adding Hugo front matter to %s", vid, blog_path.name)
-            extracted_title = add_hugo_front_matter(
-                blog_path,
-                categories=config["hugo_categories"],
-                tags=config["hugo_tags"],
-            )
-
         dest = blog_repo / blog_content_dir / blog_path.name
         blog_copied = False
         if dest.exists():
@@ -433,6 +409,18 @@ def run(config_path: Path, dry_run: bool = False) -> int:
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(blog_path, dest)
             blog_copied = True
+
+        if not dest.read_text(encoding="utf-8").startswith("+++\n"):
+            logger.info("[%s] Adding Hugo front matter to %s", vid, dest.name)
+            extracted_title = add_hugo_front_matter(
+                dest,
+                categories=config["hugo_categories"],
+                tags=config["hugo_tags"],
+            )
+            blog_copied = True
+        else:
+            logger.info("[%s] Hugo front matter already present", vid)
+            extracted_title = title
 
         if blog_copied:
             logger.info("[%s] Committing to blog repo...", vid)
@@ -448,7 +436,7 @@ def run(config_path: Path, dry_run: bool = False) -> int:
             else:
                 logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_path.name)
                 wiki_dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(blog_path, wiki_dest)
+                shutil.copy2(dest, wiki_dest)
                 logger.info("[%s] Updating wiki...", vid)
                 update_wiki(llmwiki_dir)
 
@@ -477,7 +465,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--url",
-        help="Process a single YouTube video URL (skips RSS polling and relevance filter)",
+        help="Process a single YouTube video URL (skips RSS polling)",
     )
     parser.add_argument(
         "--force",
