@@ -39,7 +39,7 @@ def setup_logging(verbose: bool = False) -> None:
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=level,
-        format="%(asctime)s [%(levelname)s] %(message)s",
+        format="%(asctime)s [autopublish] %(levelname)s: %(message)s",
         handlers=[
             logging.FileHandler(LOG_FILE, encoding="utf-8"),
             logging.StreamHandler(),
@@ -71,7 +71,12 @@ def generate_blog_post(video_url: str, youtube_repo: Path) -> Path | None:
     logger = logging.getLogger(__name__)
     before = set(youtube_repo.glob("youtube-blog-*.md"))
     result = subprocess.run(
-        ["claude", "-p", f"/youtube-blog {video_url}", "-d", str(youtube_repo)],
+        [
+            "claude", "-p", f"/youtube-blog {video_url}",
+            "-d", str(youtube_repo),
+            "--dangerously-skip-permissions",
+            "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash(python3 transcript_cli.py *),Bash(date +*)",
+        ],
         capture_output=True,
         text=True,
         timeout=600,
@@ -125,7 +130,12 @@ def update_wiki(filename: str, llmwiki_dir: Path) -> None:
     )
     try:
         result = subprocess.run(
-            ["claude", "-p", ingest_prompt, "-d", str(llmwiki_dir)],
+            [
+                "claude", "-p", ingest_prompt,
+                "-d", str(llmwiki_dir),
+                "--dangerously-skip-permissions",
+                "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash(date +*)",
+            ],
             capture_output=True,
             text=True,
             timeout=600,
@@ -138,7 +148,12 @@ def update_wiki(filename: str, llmwiki_dir: Path) -> None:
     lint_prompt = "please lint the wiki and fix any issues you find"
     try:
         result = subprocess.run(
-            ["claude", "-p", lint_prompt, "-d", str(llmwiki_dir)],
+            [
+                "claude", "-p", lint_prompt,
+                "-d", str(llmwiki_dir),
+                "--dangerously-skip-permissions",
+                "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash(date +*)",
+            ],
             capture_output=True,
             text=True,
             timeout=600,
