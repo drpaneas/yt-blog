@@ -7,14 +7,15 @@ STATE_DIR = Path.home() / ".youtube-blog-automation"
 LOG_FILE = STATE_DIR / "automation.log"
 
 
-def setup_logging(log_tag: str, verbose: bool = False) -> None:
+def setup_logging(log_tag: str, verbose: bool = False, log_file: Path | None = None) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     level = logging.DEBUG if verbose else logging.INFO
+    target = log_file if log_file is not None else LOG_FILE
     logging.basicConfig(
         level=level,
         format=f"%(asctime)s [{log_tag}] %(levelname)s: %(message)s",
         handlers=[
-            logging.FileHandler(LOG_FILE, encoding="utf-8"),
+            logging.FileHandler(target, encoding="utf-8"),
             logging.StreamHandler(),
         ],
     )

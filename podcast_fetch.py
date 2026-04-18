@@ -88,7 +88,7 @@ def fetch_new_episodes(podcasts: list[dict]) -> list[dict]:
         name = podcast["name"]
         episodes = fetch_episodes(pid)
         if not episodes:
-            logger.error("No episodes found for podcast %s (%s)", name, pid)
+            logger.warning("No episodes found for podcast %s (%s)", name, pid)
             continue
         logger.debug(
             "Found %d episodes for %s", len(episodes), name
