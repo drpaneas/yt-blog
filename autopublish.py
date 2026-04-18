@@ -1,6 +1,5 @@
 import argparse
 import logging
-import re
 import shutil
 import subprocess
 import tomllib
@@ -10,11 +9,17 @@ from urllib.parse import parse_qs, urlparse
 
 from feed_checker import fetch_new_videos
 from hugo_formatter import add_hugo_front_matter
-
+from publish_utils import (
+    STATE_DIR,
+    generate_ai_tags,
+    lint_markdown,
+    push_blog_repo,
+    setup_logging,
+    slugify,
+    update_wiki,
+    verify_blog_repo,
+)
 from state_manager import StateManager
-
-STATE_DIR = Path.home() / ".youtube-blog-automation"
-LOG_FILE = STATE_DIR / "automation.log"
 
 
 def load_config(config_path: Path) -> dict:
@@ -34,39 +39,6 @@ def load_config(config_path: Path) -> dict:
         "max_parallel": raw.get("max_parallel", 1),
         "channels": raw.get("channel", []),
     }
-
-
-def setup_logging(verbose: bool = False) -> None:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [autopublish] %(levelname)s: %(message)s",
-        handlers=[
-            logging.FileHandler(LOG_FILE, encoding="utf-8"),
-            logging.StreamHandler(),
-        ],
-    )
-
-
-def verify_blog_repo(blog_repo: Path, expected_branch: str) -> None:
-    result = subprocess.run(
-        ["git", "branch", "--show-current"],
-        cwd=blog_repo,
-        capture_output=True,
-        text=True,
-    )
-    branch = result.stdout.strip()
-    if branch != expected_branch:
-        raise RuntimeError(f"Blog repo is on branch '{branch}', expected '{expected_branch}'")
-    result = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=blog_repo,
-        capture_output=True,
-        text=True,
-    )
-    if result.stdout.strip():
-        raise RuntimeError("Blog repo has uncommitted changes")
 
 
 def generate_blog_post(video_url: str, video_id: str, youtube_repo: Path) -> Path | None:
@@ -98,96 +70,6 @@ def generate_blog_post(video_url: str, video_id: str, youtube_repo: Path) -> Pat
     return max(matches, key=lambda p: p.stat().st_mtime)
 
 
-def push_blog_repo(blog_repo: Path, file_path: Path, titles: list[str]) -> bool:
-    logger = logging.getLogger(__name__)
-    try:
-        rel_path = file_path.relative_to(blog_repo)
-        subprocess.run(
-            ["git", "add", str(rel_path)],
-            cwd=blog_repo,
-            check=True,
-            capture_output=True,
-        )
-        status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=blog_repo,
-            capture_output=True,
-            text=True,
-        )
-        if not status.stdout.strip():
-            logger.info("Nothing new to commit in blog repo")
-            return True
-        msg = "Add blog posts: " + ", ".join(titles)
-        subprocess.run(
-            ["git", "commit", "-m", msg],
-            cwd=blog_repo,
-            check=True,
-            capture_output=True,
-        )
-        # TODO: re-enable push when ready
-        # subprocess.run(
-        #     ["git", "push"],
-        #     cwd=blog_repo,
-        #     check=True,
-        #     capture_output=True,
-        # )
-        return True
-    except subprocess.CalledProcessError as exc:
-        logger.error("Git commit failed: %s", exc.stderr)
-        return False
-
-
-def update_wiki(llmwiki_dir: Path) -> None:
-    logger = logging.getLogger(__name__)
-    ingest_prompt = (
-        "I just added new sources to the raw folder. "
-        "Read them and update the wiki by ingesting all of them into it."
-    )
-    try:
-        result = subprocess.run(
-            [
-                "claude", "-p", ingest_prompt,
-                "-d", str(llmwiki_dir),
-                "--dangerously-skip-permissions",
-                "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash(date +*)",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=600,
-            check=True,
-        )
-        logger.debug("Wiki update stdout:\n%s", result.stdout)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        logger.error("Wiki update failed: %s", exc)
-
-    # TODO: re-enable wiki lint when ready
-    # lint_prompt = "please lint the wiki and fix any issues you find"
-    # try:
-    #     result = subprocess.run(
-    #         [
-    #             "claude", "-p", lint_prompt,
-    #             "-d", str(llmwiki_dir),
-    #             "--dangerously-skip-permissions",
-    #             "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash(date +*)",
-    #         ],
-    #         capture_output=True,
-    #         text=True,
-    #         timeout=600,
-    #         check=True,
-    #     )
-    #     logger.debug("Wiki lint stdout:\n%s", result.stdout)
-    # except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-    #     logger.error("Wiki lint failed: %s", exc)
-
-
-def _slugify_channel(name: str) -> str:
-    slug = name.lower().strip()
-    slug = re.sub(r"[^a-z0-9\s-]", "", slug)
-    slug = re.sub(r"[\s]+", "-", slug)
-    slug = re.sub(r"-+", "-", slug)
-    return slug.strip("-") or "unknown"
-
-
 def _detect_channel_name(video_url: str) -> str:
     logger = logging.getLogger(__name__)
     prompt = (
@@ -209,67 +91,6 @@ def _detect_channel_name(video_url: str) -> str:
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
         logger.warning("Channel detection failed: %s", exc)
     return "manual"
-
-
-def _lint_markdown(file_path: Path) -> None:
-    logger = logging.getLogger(__name__)
-    prompt = (
-        f"Read the markdown file at {file_path.name} and fix any markdown "
-        "formatting issues in-place. Fix things like: inconsistent heading "
-        "levels, missing blank lines around headings/lists/code blocks, "
-        "trailing whitespace, and malformed links. Do not change the content, "
-        "only fix formatting."
-    )
-    try:
-        result = subprocess.run(
-            [
-                "claude", "-p", prompt,
-                "-d", str(file_path.parent),
-                "--dangerously-skip-permissions",
-                "--allowedTools", "Read,Write,Edit",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        logger.debug("Markdown lint stdout:\n%s", result.stdout)
-        if result.returncode != 0:
-            logger.warning("Markdown lint returned exit code %d", result.returncode)
-    except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
-        logger.warning("Markdown lint failed: %s", exc)
-
-
-def _generate_ai_tags(file_path: Path) -> list[str]:
-    logger = logging.getLogger(__name__)
-    prompt = (
-        f"Read the blog post at {file_path.name} and return up to 5 short "
-        "lowercase tags that describe the content. Return only a comma-separated "
-        "list of tags, nothing else. Example: kubernetes, security, llm"
-    )
-    try:
-        result = subprocess.run(
-            [
-                "claude", "-p", prompt,
-                "-d", str(file_path.parent),
-                "--dangerously-skip-permissions",
-                "--allowedTools", "Read",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            raw = result.stdout.strip().split("\n")[0]
-            tags = [t.strip().lower() for t in raw.split(",") if t.strip()]
-            tags = [re.sub(r"\s+", "-", t) for t in tags]
-            tags = [re.sub(r"[^a-z0-9-]", "", t) for t in tags]
-            tags = [re.sub(r"-+", "-", t).strip("-") for t in tags]
-            tags = [t for t in tags if t][:5]
-            logger.info("AI-generated tags: %s", tags)
-            return tags
-    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-        logger.warning("AI tag generation failed: %s", exc)
-    return []
 
 
 def _find_existing_blog(video_id: str, *search_dirs: Path) -> Path | None:
@@ -323,7 +144,7 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
 
     logger.info("[%s] Detecting channel name...", vid)
     channel_name = _detect_channel_name(video_url)
-    channel_slug = _slugify_channel(channel_name)
+    channel_slug = slugify(channel_name)
     logger.info("[%s] Channel: %s (slug: %s)", vid, channel_name, channel_slug)
 
     if force:
@@ -362,9 +183,9 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
 
     if not dest.read_text(encoding="utf-8").startswith("+++\n"):
         logger.info("[%s] Linting markdown...", vid)
-        _lint_markdown(dest)
+        lint_markdown(dest)
         logger.info("[%s] Generating AI tags...", vid)
-        ai_tags = _generate_ai_tags(dest)
+        ai_tags = generate_ai_tags(dest)
         all_tags = list(config["hugo_tags"]) + [channel_slug] + ai_tags
         seen = set()
         unique_tags = []
@@ -465,7 +286,7 @@ def run(config_path: Path, dry_run: bool = False) -> int:
 
     for video in approved:
         vid = video["video_id"]
-        channel_slug = _slugify_channel(video["channel"])
+        channel_slug = slugify(video["channel"])
         search_dirs = [youtube_repo, blog_repo / blog_content_dir / channel_slug, blog_repo / blog_content_dir]
         if llmwiki_dir is not None:
             search_dirs.append(llmwiki_dir / "raw")
@@ -508,7 +329,7 @@ def run(config_path: Path, dry_run: bool = False) -> int:
         vid = video["video_id"]
         title = video["title"]
         channel_name = video["channel"]
-        channel_slug = _slugify_channel(channel_name)
+        channel_slug = slugify(channel_name)
         blog_path = generation_results.get(vid)
         if blog_path is None:
             continue
@@ -525,9 +346,9 @@ def run(config_path: Path, dry_run: bool = False) -> int:
 
         if not dest.read_text(encoding="utf-8").startswith("+++\n"):
             logger.info("[%s] Linting markdown...", vid)
-            _lint_markdown(dest)
+            lint_markdown(dest)
             logger.info("[%s] Generating AI tags...", vid)
-            ai_tags = _generate_ai_tags(dest)
+            ai_tags = generate_ai_tags(dest)
             all_tags = list(config["hugo_tags"]) + [channel_slug] + ai_tags
             seen = set()
             unique_tags = []
@@ -613,7 +434,7 @@ def main() -> int:
         help="Path to channels.toml config file",
     )
     args = parser.parse_args()
-    setup_logging(verbose=args.verbose)
+    setup_logging("autopublish", verbose=args.verbose)
     if args.url:
         if args.dry_run:
             parser.error("--dry-run cannot be used with --url")
