@@ -1,6 +1,6 @@
 ---
 description: Write a pedagogic developer blog post from a PodcastIndex URL
-argument-hint: <podcastindex-url>
+argument-hint: [--episode-id <id>] <podcastindex-url>
 disable-model-invocation: true
 allowed-tools: Read Write Edit Glob Grep Bash(python3 podcast_transcript_cli.py *) Bash(date +%Y%m%d-%H%M%S)
 ---
@@ -11,9 +11,11 @@ Follow this workflow exactly.
 
 ## 1. Validate the input and locate the local files
 
-- Ensure `$ARGUMENTS` looks like a valid PodcastIndex URL or a raw numeric podcast ID.
-- Accept common PodcastIndex URL forms such as `podcastindex.org/podcast/<id>` and `podcastindex.org/podcast/<id>?episode=<eid>`.
-- If it is not a usable PodcastIndex URL or numeric ID, stop and tell the user to run `/podcast-blog <podcastindex-url>` with a valid URL.
+- `$ARGUMENTS` may arrive in two forms:
+  1. **Interactive:** a PodcastIndex URL (e.g. `podcastindex.org/podcast/<id>` or `podcastindex.org/podcast/<id>?episode=<eid>`) or a raw numeric podcast ID.
+  2. **Batch:** a transcript JSON filename followed by a URL and an optional `--episode-id <id>` flag (e.g. `_podcast_transcript_123_slug.json https://example.com/feed --episode-id 123`).
+- Accept both forms. If `--episode-id <id>` is present anywhere in `$ARGUMENTS`, extract that numeric ID and use it for filename naming (see Section 5).
+- If `$ARGUMENTS` matches neither form, stop and tell the user to run `/podcast-blog <podcastindex-url>` with a valid URL or the batch argument format.
 - Locate `podcast_transcript_cli.py` and `pedagogic.md` in the current project.
 - Prefer the workspace-root copies if multiple matches exist.
 - If either file is missing, stop and report which file is missing.
@@ -65,8 +67,9 @@ Write a polished Markdown article to the workspace root.
 Filename rules:
 
 - Save as `podcast-blog-<slug>-<episode-id>.md` (do not use `podcast-blog-<episode-id>.md` alone as the default name)
-- Extract `<episode-id>` from the PodcastIndex URL query parameter `?episode=<eid>` when available
-- If no episode ID can be extracted from the URL, use `podcast-blog-<slug>-<timestamp>.md` (timestamp from `date +%Y%m%d-%H%M%S` when you need a disambiguator)
+- Use the `<episode-id>` from the `--episode-id <id>` argument in `$ARGUMENTS` if provided
+- Otherwise extract `<episode-id>` from the PodcastIndex URL query parameter `?episode=<eid>` when available
+- If no episode ID can be determined from either source, use `podcast-blog-<slug>-<timestamp>.md` (timestamp from `date +%Y%m%d-%H%M%S` when you need a disambiguator)
 - After you finalize the article's main title, set the Markdown H1 to that title, then derive `<slug>` from that exact final H1 text:
   - Use a short, lowercase, ASCII-only slug (drop or strip non-ASCII characters rather than inventing transliterations)
   - Replace internal whitespace with single `-` characters
