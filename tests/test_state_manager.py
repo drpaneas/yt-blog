@@ -80,6 +80,13 @@ class TestStateManagerPrefix(unittest.TestCase):
         self.assertIn("podcast:abc123", state)
         self.assertEqual(state["youtube:abc123"]["title"], "YT Video")
 
+    def test_prefix_falls_back_to_unprefixed_key(self):
+        """Existing un-prefixed entries must be found when using a prefix."""
+        mgr_old = StateManager(self.state_dir)
+        mgr_old.mark_seen("abc123", {"title": "Old Video"})
+        mgr_new = StateManager(self.state_dir, prefix="youtube:")
+        self.assertTrue(mgr_new.is_seen("abc123"))
+
     def test_no_prefix_backward_compatible(self):
         mgr = StateManager(self.state_dir)
         mgr.mark_seen("vid1", {"title": "test"})

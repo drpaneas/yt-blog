@@ -19,7 +19,13 @@ class StateManager:
         return json.loads(self._state_file.read_text(encoding="utf-8"))
 
     def is_seen(self, video_id: str) -> bool:
-        return self._key(video_id) in self.load()
+        state = self.load()
+        prefixed = self._key(video_id)
+        if prefixed in state:
+            return True
+        if self._prefix and video_id in state:
+            return True
+        return False
 
     def mark_seen(self, video_id: str, metadata: dict) -> None:
         state = self.load()
