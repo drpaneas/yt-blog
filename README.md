@@ -6,6 +6,7 @@ Small script repo for two related workflows:
 
 - fetch and clean YouTube auto-subtitles into plain text
 - use a local Claude Code slash command to turn a video transcript into a pedagogic blog post
+- automated blog publishing from YouTube channels and podcast feeds
 
 This repo is intentionally a script-based project, not a packaged Python library.
 
@@ -13,17 +14,52 @@ This repo is intentionally a script-based project, not a packaged Python library
 
 - Python 3.10 or newer
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp)
-- Claude Code, to use the `/youtube-blog` slash command.
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code), to use the slash commands and autopublish scripts
+- [openai-whisper](https://github.com/openai/whisper) (for podcast transcription only)
 
 ## Install
 
-Create a virtual environment if you want one, then install the runtime dependency:
+Create a virtual environment if you want one, then install the runtime dependencies:
 
 ```bash
 python3 -m pip install -r requirements.txt
 ```
 
-That installs `yt-dlp`, which the Python scripts invoke via the `yt-dlp` executable on `PATH`.
+That installs `yt-dlp` (invoked via the `yt-dlp` executable on `PATH`) and `openai-whisper` (used for podcast audio transcription).
+
+## Configuration
+
+Copy the example config and fill in your details:
+
+```bash
+cp channels.toml.example channels.toml
+```
+
+`channels.toml` is gitignored so your personal config stays local. It contains:
+
+- `[paths]` - paths to your Hugo blog repo, this repo, and optionally an LLM wiki directory
+- `[hugo]` - Hugo front matter categories and tags for YouTube posts
+- `[podcast_hugo]` - Hugo front matter categories and tags for podcast posts
+- `[[channel]]` entries - YouTube channels to poll via RSS
+- `[[podcast]]` entries - PodcastIndex podcast IDs to poll
+- `max_parallel` - max concurrent Claude instances for blog generation
+- `max_episodes_per_podcast` - how many recent episodes to fetch per podcast
+
+### Environment variables
+
+For podcast functionality, set PodcastIndex API credentials:
+
+```bash
+export PODCASTINDEX_API_KEY="your-key"
+export PODCASTINDEX_API_SECRET="your-secret"
+```
+
+Get API credentials at [podcastindex.org/developers](https://podcastindex.org/developers).
+
+Optional YouTube variables:
+
+- `YOUTUBE_TRANSCRIPT_IMPERSONATE=chrome` - pass `--impersonate chrome` to `yt-dlp` (helps with rate limits)
+- `YOUTUBE_TRANSCRIPT_CACHE_DIR=/path/to/cache` - reuse previously downloaded subtitle files
 
 ## Transcript CLI
 
@@ -67,38 +103,64 @@ python3 transcript_cli.py "https://www.youtube.com/watch?v=VIDEO_ID" --json --al
 - Set **`YOUTUBE_TRANSCRIPT_IMPERSONATE=chrome`** to pass `--impersonate chrome` to `yt-dlp` (TLS fingerprinting; helps some blocked or flaky networks). Install extra support with `python3 -m pip install 'yt-dlp[curl-cffi]'` so impersonation can use curl-cffi.
 - Set **`YOUTUBE_TRANSCRIPT_CACHE_DIR=/path/to/cache`** to reuse previously downloaded subtitle files. Cache files are named by video ID and mode (for example `VIDEOID-en.vtt` for English-only runs, or `VIDEOID-allow-non-english-LANG-0|1.vtt` when `--allow-non-english` is used). On a cache hit, the fetcher returns the same `language` and `used_fallback` metadata as a live download.
 
-## Claude Code command
+## Claude Code commands
 
-This repo also ships a local Claude Code slash command:
+This repo ships two Claude Code slash commands for blog generation.
+
+### YouTube
 
 ```text
 /youtube-blog <youtube-url>
 ```
 
-To use it:
+Fetches the transcript, reads `pedagogic.md` for style, derives an outline, and writes a Markdown blog post to the repo root.
 
-1. Open Claude Code in this repository.
-2. Run:
+### Podcast
 
 ```text
-/youtube-blog https://www.youtube.com/watch?v=VIDEO_ID
+/podcast-blog <podcastindex-url>
 ```
 
-The command will:
+Fetches and transcribes the podcast episode using Whisper, then generates a blog post. Accepts PodcastIndex URLs like `https://podcastindex.org/podcast/123456?episode=789`.
 
-- run `transcript_cli.py` in structured mode
-- read `pedagogic.md`
-- derive a source-specific outline
-- write a Markdown blog post to the repo root
-
-The command still uses `transcript_cli.py` as the only supported ingestion path, but it can opt into non-English subtitle ingestion and still produce the final blog post in English.
-If transcript extraction fails, the command is designed to stop cleanly instead of improvising with unsupported manual fallback steps.
-
-Another way is to not open Claude interactively at all, but run it from the command line:
+Both commands can also be run non-interactively:
 
 ```bash
 claude -p "/youtube-blog https://www.youtube.com/watch?v=VIDEO_ID"
+claude -p "/podcast-blog https://podcastindex.org/podcast/123456"
 ```
+
+## Autopublish
+
+Automated scripts that poll RSS feeds, generate blog posts, and publish them to a Hugo blog repo.
+
+### YouTube autopublish
+
+```bash
+python3 autopublish.py              # poll RSS feeds, generate and publish new posts
+python3 autopublish.py --dry-run    # show what would be processed
+python3 autopublish.py --url "https://www.youtube.com/watch?v=VIDEO_ID"  # process single video
+python3 autopublish.py --url "..." --force  # reprocess even if already seen
+```
+
+### Podcast autopublish
+
+```bash
+python3 podcast_autopublish.py                # poll PodcastIndex, transcribe, generate, publish
+python3 podcast_autopublish.py --dry-run      # show what would be processed
+python3 podcast_autopublish.py --url "https://podcastindex.org/podcast/123456?episode=789"
+python3 podcast_autopublish.py --url "..." --force          # reprocess
+python3 podcast_autopublish.py --url "..." --generate-only  # generate markdown without publishing
+python3 podcast_autopublish.py --whisper-model base          # use smaller Whisper model
+```
+
+Both scripts:
+
+- Track processed episodes in `~/.youtube-blog-automation/` to avoid reprocessing
+- Run Claude in headless mode to generate blog posts
+- Add Hugo front matter with AI-generated tags
+- Commit to the configured blog repo
+- Optionally copy to an LLM wiki directory
 
 ## Tests
 
@@ -115,5 +177,6 @@ Downloaded subtitle files, cleaned transcript files, and generated blog posts ar
 - `*.vtt`
 - `*.clean.txt`
 - `youtube-blog-*.md`
+- `podcast-blog-*.md`
 
 If you want to keep a generated article, move it somewhere intentional before publishing or committing it.

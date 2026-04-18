@@ -4,6 +4,9 @@ __pycache__/
 *.clean.txt
 youtube-blog-*.md
 podcast-blog-*.md
+_podcast_transcript_*.json
+.env
+.env.*
 .venv/
 venv/
 .cursor/

@@ -3,6 +3,7 @@
 # channels.toml is gitignored so your personal config stays local.
 
 max_parallel = 5
+# max_episodes_per_podcast = 3
 
 [paths]
 # Local clone of your Hugo blog repo
