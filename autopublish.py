@@ -1,5 +1,6 @@
 import argparse
 import logging
+import re
 import shutil
 import subprocess
 import tomllib
@@ -202,7 +203,13 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
         blog_copied = True
     else:
         logger.info("[%s] Hugo front matter already present", vid)
+        text = dest.read_text(encoding="utf-8")
         extracted_title = dest.stem
+        for line in text.split("\n"):
+            m = re.match(r'^title\s*=\s*"(.+)"', line)
+            if m:
+                extracted_title = m.group(1)
+                break
 
     if blog_copied:
         logger.info("[%s] Committing to blog repo...", vid)
