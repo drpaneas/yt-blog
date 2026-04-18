@@ -57,7 +57,7 @@ def fetch_podcast_info(podcast_id: str) -> dict | None:
 
 def fetch_episodes(podcast_id: str) -> list[dict]:
     try:
-        data = _api_get("episodes/byfeedid", {"id": podcast_id, "max": "10"})
+        data = _api_get("episodes/byfeedid", {"id": podcast_id, "max": str(MAX_EPISODES_PER_PODCAST + 2)})
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
         logger.error("Failed to fetch episodes for %s: %s", podcast_id, exc)
         return []

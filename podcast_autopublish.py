@@ -1,4 +1,5 @@
 import argparse
+import gc
 import json
 import logging
 import re
@@ -432,6 +433,7 @@ def run(
             shutil.rmtree(audio_dir, ignore_errors=True)
 
         del model
+        gc.collect()
 
         # Generate blog posts (parallel via ThreadPoolExecutor)
         episodes_with_transcripts = [

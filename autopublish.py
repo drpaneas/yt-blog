@@ -386,7 +386,7 @@ def run(config_path: Path, dry_run: bool = False) -> int:
                 update_wiki(llmwiki_dir)
 
         state.mark_seen(vid, {
-            "title": title,
+            "title": extracted_title,
             "filename": blog_path.name,
             "channel": channel_name,
             "published": True,

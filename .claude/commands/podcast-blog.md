@@ -24,6 +24,7 @@ Follow this workflow exactly.
 - For URL inputs, `podcast_transcript_cli.py` is the only supported transcript-ingestion path.
 - Treat the JSON stdout from that command as the transcript contract for this workflow.
 - Read the structured transcript output carefully before drafting anything.
+- If the transcript exceeds approximately 30,000 words, summarize the excess portions rather than trying to process the full text. Focus the article on the most substantive segments.
 - Keep the article grounded in the transcript.
 - Do not add factual claims that are not supported by the source text.
 - For strong claims about products, benchmarks, security issues, or other contested points, make it clear that they are the speaker's claims or that they were presented that way in the episode.
