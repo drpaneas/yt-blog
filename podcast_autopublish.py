@@ -70,7 +70,7 @@ def generate_blog_post(
         result = subprocess.run(
             [
                 "claude", "-p",
-                f"/podcast-blog {transcript_path.name} {episode_url}",
+                f"/podcast-blog {transcript_path.name} {episode_url} --episode-id {episode_id}",
                 "-d", str(youtube_repo),
                 "--dangerously-skip-permissions",
                 "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash(date +*)",

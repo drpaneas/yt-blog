@@ -1,6 +1,8 @@
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch, MagicMock
+import json
 
 from podcast_autopublish import load_config, _find_existing_blog
 from podcast_fetch import extract_podcast_id
@@ -119,3 +121,26 @@ class TestFindExistingBlog(unittest.TestCase):
     def test_returns_none_for_nonexistent_dir(self):
         result = _find_existing_blog("12345", Path("/nonexistent/dir"))
         self.assertIsNone(result)
+
+
+class TestGenerateBlogPost(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = TemporaryDirectory()
+        self.tmp = Path(self.tmpdir.name)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    @patch("podcast_autopublish.subprocess.run")
+    def test_passes_episode_id_in_prompt(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        blog_file = self.tmp / "podcast-blog-test-title-12345.md"
+        blog_file.write_text("# Test")
+
+        from podcast_autopublish import generate_blog_post
+        transcript = {"text": "hello", "language": "en"}
+        generate_blog_post(transcript, "12345", "https://example.com/ep", self.tmp)
+
+        call_args = mock_run.call_args[0][0]
+        prompt_arg = call_args[2]
+        self.assertIn("--episode-id 12345", prompt_arg)
