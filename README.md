@@ -1,12 +1,12 @@
-# Create blogpost from a Youtube video
+# Auto-publish blog posts from YouTube and podcasts
 
-Fetch YouTube auto-subtitles as clean plaintext, and optionally turn them into blog posts through a local Claude Code command.
+Turn YouTube videos and podcast episodes into pedagogic blog posts using Claude Code, and optionally sync them to an LLM wiki.
 
-Small script repo for two related workflows:
+Script repo for three workflows:
 
 - fetch and clean YouTube auto-subtitles into plain text
-- use a local Claude Code slash command to turn a video transcript into a pedagogic blog post
-- automated blog publishing from YouTube channels and podcast feeds
+- use Claude Code slash commands to turn video or podcast transcripts into blog posts
+- automated blog publishing from YouTube channels and podcast feeds, with optional LLM wiki integration
 
 This repo is intentionally a script-based project, not a packaged Python library.
 
