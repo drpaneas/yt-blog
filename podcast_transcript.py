@@ -21,6 +21,10 @@ def _audio_extension(audio_url: str) -> str:
 def download_audio(
     audio_url: str, dest_dir: Path, episode_id: str
 ) -> Path | None:
+    parsed = urllib.parse.urlparse(audio_url)
+    if parsed.scheme not in ("http", "https"):
+        logger.error("Refusing to download non-HTTP URL: %s", audio_url)
+        return None
     dest_dir.mkdir(parents=True, exist_ok=True)
     ext = _audio_extension(audio_url)
     dest_path = dest_dir / f"podcast-{episode_id}{ext}"

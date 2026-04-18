@@ -70,3 +70,18 @@ class TestDownloadAudio(unittest.TestCase):
                 "https://example.com/ep.mp3", dest, "ep123"
             )
             self.assertEqual(result, existing)
+
+
+class TestDownloadAudioSecurity(unittest.TestCase):
+    def test_rejects_file_scheme(self):
+        with TemporaryDirectory() as tmp:
+            result = download_audio("file:///etc/passwd", Path(tmp), "evil1")
+            self.assertIsNone(result)
+
+    def test_rejects_empty_scheme(self):
+        with TemporaryDirectory() as tmp:
+            result = download_audio("/some/local/path.mp3", Path(tmp), "evil2")
+            self.assertIsNone(result)
+
+    def test_accepts_https(self):
+        pass  # covered by existing download tests
