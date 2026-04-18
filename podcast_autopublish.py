@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import shutil
+import uuid
 import subprocess
 import tempfile
 import tomllib
@@ -80,7 +81,7 @@ def generate_blog_post(
     youtube_repo: Path,
 ) -> Path | None:
     logger = logging.getLogger(__name__)
-    transcript_path = youtube_repo / f"_podcast_transcript_{episode_id}.json"
+    transcript_path = youtube_repo / f"_podcast_transcript_{episode_id}_{uuid.uuid4().hex[:8]}.json"
     transcript_path.write_text(
         json.dumps(transcript, ensure_ascii=False),
         encoding="utf-8",
@@ -192,7 +193,7 @@ def run_single(
     generate_only: bool = False,
 ) -> int:
     config = load_config(config_path)
-    state = StateManager(STATE_DIR)
+    state = StateManager(STATE_DIR, prefix="podcast:")
     logger = logging.getLogger(__name__)
 
     blog_repo = config["blog_repo"]
