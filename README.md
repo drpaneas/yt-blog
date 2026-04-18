@@ -8,6 +8,8 @@ Script repo for three workflows:
 - use Claude Code slash commands to turn video or podcast transcripts into blog posts
 - automated blog publishing from YouTube channels and podcast feeds, with optional LLM wiki integration
 
+![Hugo blog with auto-published posts](assets/hugo-blog-screenshot.png)
+
 This repo is intentionally a script-based project, not a packaged Python library.
 
 ## Requirements
