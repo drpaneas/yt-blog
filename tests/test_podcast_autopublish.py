@@ -144,3 +144,40 @@ class TestGenerateBlogPost(unittest.TestCase):
         call_args = mock_run.call_args[0][0]
         prompt_arg = call_args[2]
         self.assertIn("--episode-id 12345", prompt_arg)
+
+    @patch("podcast_autopublish.subprocess.run")
+    @patch("podcast_autopublish.time")
+    def test_fallback_finds_timestamp_named_file(self, mock_time, mock_run):
+        """When Claude names the file with a timestamp instead of episode ID,
+        generate_blog_post should still find it via recency fallback."""
+        mock_time.time.return_value = 1000000000.0
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        blog_file = self.tmp / "podcast-blog-some-title-20260418-163000.md"
+        blog_file.write_text("# Test")
+        import os
+        os.utime(blog_file, (1000000005.0, 1000000005.0))
+
+        from podcast_autopublish import generate_blog_post
+        transcript = {"text": "hello", "language": "en"}
+        result = generate_blog_post(transcript, "12345", "https://example.com/ep", self.tmp)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.name, "podcast-blog-some-title-20260418-163000.md")
+
+    @patch("podcast_autopublish.subprocess.run")
+    @patch("podcast_autopublish.time")
+    def test_fallback_ignores_preexisting_files(self, mock_time, mock_run):
+        """Fallback should not pick up podcast-blog files that existed before
+        the subprocess call (they belong to other episodes)."""
+        mock_time.time.return_value = 9999999999.0
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        old_file = self.tmp / "podcast-blog-old-episode-99999.md"
+        old_file.write_text("# Old")
+        import os
+        os.utime(old_file, (1000000000.0, 1000000000.0))
+
+        from podcast_autopublish import generate_blog_post
+        transcript = {"text": "hello", "language": "en"}
+        result = generate_blog_post(transcript, "12345", "https://example.com/ep", self.tmp)
+
+        self.assertIsNone(result)

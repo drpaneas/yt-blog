@@ -3,6 +3,7 @@ import gc
 import json
 import logging
 import shutil
+import time
 import uuid
 import subprocess
 import tempfile
@@ -66,6 +67,7 @@ def generate_blog_post(
         json.dumps(transcript, ensure_ascii=False),
         encoding="utf-8",
     )
+    start_time = time.time()
     try:
         result = subprocess.run(
             [
@@ -91,7 +93,24 @@ def generate_blog_post(
         return None
     matches = list(youtube_repo.glob(f"podcast-blog-*-{episode_id}.md"))
     if not matches:
-        logger.error("[%s] No output file matching episode ID", episode_id)
+        recent = [
+            p for p in youtube_repo.glob("podcast-blog-*.md")
+            if p.stat().st_mtime >= start_time
+        ]
+        if len(recent) == 1:
+            logger.warning(
+                "[%s] No file with episode ID in name; using recent file: %s",
+                episode_id, recent[0].name,
+            )
+            return recent[0]
+        if recent:
+            logger.error(
+                "[%s] No file with episode ID in name and %d recent candidates "
+                "(parallel workers?); cannot determine correct file",
+                episode_id, len(recent),
+            )
+        else:
+            logger.error("[%s] No output file matching episode ID", episode_id)
         return None
     return max(matches, key=lambda p: p.stat().st_mtime)
 
