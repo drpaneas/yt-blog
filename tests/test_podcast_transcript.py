@@ -4,7 +4,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch, MagicMock
 from io import BytesIO
 
-from podcast_transcript import download_audio, _audio_extension
+from podcast_transcript import download_audio, _audio_extension, transcribe_audio, load_whisper_model
 
 
 class TestAudioExtension(unittest.TestCase):
@@ -61,7 +61,8 @@ class TestDownloadAudio(unittest.TestCase):
             files = list(dest.iterdir())
             self.assertEqual(files, [])
 
-    def test_skips_download_if_file_exists_and_nonempty(self):
+    @patch("podcast_transcript.urllib.request.urlopen")
+    def test_skips_download_if_file_exists_and_nonempty(self, mock_urlopen):
         with TemporaryDirectory() as tmp:
             dest = Path(tmp)
             existing = dest / "podcast-ep123.mp3"
@@ -70,6 +71,7 @@ class TestDownloadAudio(unittest.TestCase):
                 "https://example.com/ep.mp3", dest, "ep123"
             )
             self.assertEqual(result, existing)
+            mock_urlopen.assert_not_called()
 
 
 class TestDownloadAudioSecurity(unittest.TestCase):
@@ -85,3 +87,66 @@ class TestDownloadAudioSecurity(unittest.TestCase):
 
     def test_accepts_https(self):
         pass  # covered by existing download tests
+
+
+class TestTranscribeAudio(unittest.TestCase):
+    def test_returns_none_when_model_is_none(self):
+        with TemporaryDirectory() as tmp:
+            audio = Path(tmp) / "test.mp3"
+            audio.write_bytes(b"fake")
+            result = transcribe_audio(audio, None)
+            self.assertIsNone(result)
+
+    def test_returns_transcript_on_success(self):
+        mock_model = MagicMock()
+        mock_model.transcribe.return_value = {
+            "text": "Hello world this is a test",
+            "language": "en",
+        }
+        with TemporaryDirectory() as tmp:
+            audio = Path(tmp) / "test.mp3"
+            audio.write_bytes(b"fake audio")
+            result = transcribe_audio(audio, mock_model)
+            self.assertEqual(result["text"], "Hello world this is a test")
+            self.assertEqual(result["language"], "en")
+
+    def test_returns_none_on_empty_text(self):
+        mock_model = MagicMock()
+        mock_model.transcribe.return_value = {"text": "   ", "language": "en"}
+        with TemporaryDirectory() as tmp:
+            audio = Path(tmp) / "test.mp3"
+            audio.write_bytes(b"fake")
+            result = transcribe_audio(audio, mock_model)
+            self.assertIsNone(result)
+
+    def test_returns_none_on_transcription_error(self):
+        mock_model = MagicMock()
+        mock_model.transcribe.side_effect = RuntimeError("CUDA error")
+        with TemporaryDirectory() as tmp:
+            audio = Path(tmp) / "test.mp3"
+            audio.write_bytes(b"fake")
+            result = transcribe_audio(audio, mock_model)
+            self.assertIsNone(result)
+
+
+class TestLoadWhisperModel(unittest.TestCase):
+    def test_returns_model_on_success(self):
+        mock_model = MagicMock()
+        mock_whisper = MagicMock()
+        mock_whisper.load_model.return_value = mock_model
+        with patch.dict("sys.modules", {"whisper": mock_whisper}):
+            result = load_whisper_model("base")
+            self.assertEqual(result, mock_model)
+            mock_whisper.load_model.assert_called_once_with("base")
+
+    def test_returns_none_on_load_error(self):
+        mock_whisper = MagicMock()
+        mock_whisper.load_model.side_effect = RuntimeError("CUDA error")
+        with patch.dict("sys.modules", {"whisper": mock_whisper}):
+            result = load_whisper_model("base")
+            self.assertIsNone(result)
+
+    def test_returns_none_when_whisper_not_installed(self):
+        with patch.dict("sys.modules", {"whisper": None}):
+            result = load_whisper_model("base")
+            self.assertIsNone(result)

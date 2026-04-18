@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from podcast_autopublish import load_config, _extract_podcast_id
+from podcast_autopublish import load_config, _extract_podcast_id, _find_existing_blog
 
 
 class TestLoadConfig(unittest.TestCase):
@@ -99,3 +99,22 @@ class TestExtractPodcastId(unittest.TestCase):
                 "https://audio.buzzsprout.com/gtmp94ahf022qgcjujcupynqf6gq"
             )
         self.assertIn("Only PodcastIndex URLs are supported", str(ctx.exception))
+
+
+class TestFindExistingBlog(unittest.TestCase):
+    def test_finds_matching_file(self):
+        with TemporaryDirectory() as tmp:
+            d = Path(tmp)
+            f = d / "podcast-blog-test-episode-12345.md"
+            f.write_text("# Test")
+            result = _find_existing_blog("12345", d)
+            self.assertEqual(result, f)
+
+    def test_returns_none_when_no_match(self):
+        with TemporaryDirectory() as tmp:
+            result = _find_existing_blog("99999", Path(tmp))
+            self.assertIsNone(result)
+
+    def test_returns_none_for_nonexistent_dir(self):
+        result = _find_existing_blog("12345", Path("/nonexistent/dir"))
+        self.assertIsNone(result)
