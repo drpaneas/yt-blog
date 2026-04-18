@@ -1,1 +1,2 @@
 yt-dlp>=2026.03.17
+openai-whisper
