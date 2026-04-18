@@ -70,6 +70,18 @@ def download_audio(
     return dest_path
 
 
+def _best_device() -> str:
+    try:
+        import torch
+        if torch.backends.mps.is_available():
+            return "mps"
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:
+        pass
+    return "cpu"
+
+
 def load_whisper_model(model_name: str = "large-v3"):
     try:
         import whisper
@@ -79,10 +91,20 @@ def load_whisper_model(model_name: str = "large-v3"):
             "Run: pip install openai-whisper"
         )
         return None
-    logger.info("Loading Whisper model '%s'...", model_name)
+    device = _best_device()
+    logger.info("Loading Whisper model '%s' on %s...", model_name, device)
     try:
-        return whisper.load_model(model_name)
+        return whisper.load_model(model_name, device=device)
     except Exception as exc:
+        if device != "cpu":
+            logger.warning(
+                "Failed to load on %s, falling back to CPU: %s", device, exc
+            )
+            try:
+                return whisper.load_model(model_name, device="cpu")
+            except Exception as exc2:
+                logger.error("Failed to load Whisper model on CPU: %s", exc2)
+                return None
         logger.error("Failed to load Whisper model: %s", exc)
         return None
 
@@ -91,9 +113,11 @@ def transcribe_audio(audio_path: Path, model) -> dict | None:
     if model is None:
         logger.error("No Whisper model provided")
         return None
-    logger.info("Transcribing %s...", audio_path.name)
+    device = str(getattr(model, "device", "cpu"))
+    use_fp16 = device not in ("cpu", "mps")
+    logger.info("Transcribing %s (device=%s, fp16=%s)...", audio_path.name, device, use_fp16)
     try:
-        result = model.transcribe(str(audio_path))
+        result = model.transcribe(str(audio_path), fp16=use_fp16)
     except Exception as exc:
         logger.error("Transcription failed: %s", exc)
         return None

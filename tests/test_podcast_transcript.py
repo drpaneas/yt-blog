@@ -154,14 +154,15 @@ class TestTranscribeAudio(unittest.TestCase):
 
 
 class TestLoadWhisperModel(unittest.TestCase):
-    def test_returns_model_on_success(self):
+    @patch("podcast_transcript._best_device", return_value="cpu")
+    def test_returns_model_on_success(self, _mock_device):
         mock_model = MagicMock()
         mock_whisper = MagicMock()
         mock_whisper.load_model.return_value = mock_model
         with patch.dict("sys.modules", {"whisper": mock_whisper}):
             result = load_whisper_model("base")
             self.assertEqual(result, mock_model)
-            mock_whisper.load_model.assert_called_once_with("base")
+            mock_whisper.load_model.assert_called_once_with("base", device="cpu")
 
     def test_returns_none_on_load_error(self):
         mock_whisper = MagicMock()
