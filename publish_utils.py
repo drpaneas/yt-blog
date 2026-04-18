@@ -28,6 +28,10 @@ def verify_blog_repo(blog_repo: Path, expected_branch: str) -> None:
         capture_output=True,
         text=True,
     )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Blog repo at '{blog_repo}' is not a valid git repository"
+        )
     branch = result.stdout.strip()
     if branch != expected_branch:
         raise RuntimeError(f"Blog repo is on branch '{branch}', expected '{expected_branch}'")
