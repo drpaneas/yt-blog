@@ -3,6 +3,7 @@ __pycache__/
 *.vtt
 *.clean.txt
 youtube-blog-*.md
+podcast-blog-*.md
 .venv/
 venv/
 .cursor/
