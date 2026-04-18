@@ -73,6 +73,9 @@ def fetch_podcast_info(podcast_id: str) -> dict | None:
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
         logger.error("Failed to fetch podcast info for %s: %s", podcast_id, exc)
         return None
+    feed = data.get("feed")
+    if feed:
+        return feed
     feeds = data.get("feeds", [])
     if not feeds:
         logger.error("No feed data returned for podcast %s", podcast_id)
