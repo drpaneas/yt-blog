@@ -89,6 +89,30 @@ class TestDownloadAudioSecurity(unittest.TestCase):
         pass  # covered by existing download tests
 
 
+class TestDownloadAudioSizeLimit(unittest.TestCase):
+    @patch("podcast_transcript.urllib.request.urlopen")
+    def test_aborts_when_download_exceeds_limit(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b"x" * 8192
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        import podcast_transcript
+        original = podcast_transcript._MAX_DOWNLOAD_SIZE
+        podcast_transcript._MAX_DOWNLOAD_SIZE = 8192 * 2
+        try:
+            with TemporaryDirectory() as tmp:
+                result = download_audio(
+                    "https://example.com/huge.mp3", Path(tmp), "huge1"
+                )
+                self.assertIsNone(result)
+                files = [f for f in Path(tmp).iterdir() if not f.name.startswith(".")]
+                self.assertEqual(len(files), 0)
+        finally:
+            podcast_transcript._MAX_DOWNLOAD_SIZE = original
+
+
 class TestTranscribeAudio(unittest.TestCase):
     def test_returns_none_when_model_is_none(self):
         with TemporaryDirectory() as tmp:

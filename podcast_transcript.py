@@ -8,6 +8,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 _DOWNLOAD_TIMEOUT = 600
+_MAX_DOWNLOAD_SIZE = 2 * 1024 * 1024 * 1024  # 2 GB
 
 
 def _audio_extension(audio_url: str) -> str:
@@ -43,10 +44,18 @@ def download_audio(
         )
         with urllib.request.urlopen(req, timeout=_DOWNLOAD_TIMEOUT) as resp:
             with open(tmp_path, "wb") as f:
+                downloaded = 0
                 while True:
                     chunk = resp.read(8192)
                     if not chunk:
                         break
+                    downloaded += len(chunk)
+                    if downloaded > _MAX_DOWNLOAD_SIZE:
+                        logger.error(
+                            "Download exceeds %d MB limit, aborting",
+                            _MAX_DOWNLOAD_SIZE // (1024 * 1024),
+                        )
+                        raise OSError("Download size limit exceeded")
                     f.write(chunk)
         Path(tmp_path).replace(dest_path)
     except OSError as exc:
