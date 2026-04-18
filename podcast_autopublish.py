@@ -321,7 +321,7 @@ def run(
     whisper_model: str = "large-v3",
 ) -> int:
     config = load_config(config_path)
-    state = StateManager(STATE_DIR)
+    state = StateManager(STATE_DIR, prefix="podcast:")
     logger = logging.getLogger(__name__)
 
     blog_repo = config["blog_repo"]

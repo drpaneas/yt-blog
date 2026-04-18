@@ -118,7 +118,7 @@ def _extract_video_id(url: str) -> str | None:
 
 def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
     config = load_config(config_path)
-    state = StateManager(STATE_DIR)
+    state = StateManager(STATE_DIR, prefix="youtube:")
     logger = logging.getLogger(__name__)
 
     blog_repo = config["blog_repo"]
@@ -233,7 +233,7 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
 
 def run(config_path: Path, dry_run: bool = False) -> int:
     config = load_config(config_path)
-    state = StateManager(STATE_DIR)
+    state = StateManager(STATE_DIR, prefix="youtube:")
     logger = logging.getLogger(__name__)
 
     blog_repo = config["blog_repo"]

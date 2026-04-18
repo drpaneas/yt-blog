@@ -58,3 +58,31 @@ class TestStateManager(unittest.TestCase):
         state_file.write_text("not json{{{")
         with self.assertRaises(json.JSONDecodeError):
             self.manager.load()
+
+
+class TestStateManagerPrefix(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = TemporaryDirectory()
+        self.state_dir = Path(self.tmpdir.name)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_prefixed_entries_isolated(self):
+        yt = StateManager(self.state_dir, prefix="youtube:")
+        pod = StateManager(self.state_dir, prefix="podcast:")
+        yt.mark_seen("abc123", {"title": "YT Video"})
+        pod.mark_seen("abc123", {"title": "Podcast Episode"})
+        self.assertTrue(yt.is_seen("abc123"))
+        self.assertTrue(pod.is_seen("abc123"))
+        state = yt.load()
+        self.assertIn("youtube:abc123", state)
+        self.assertIn("podcast:abc123", state)
+        self.assertEqual(state["youtube:abc123"]["title"], "YT Video")
+
+    def test_no_prefix_backward_compatible(self):
+        mgr = StateManager(self.state_dir)
+        mgr.mark_seen("vid1", {"title": "test"})
+        self.assertTrue(mgr.is_seen("vid1"))
+        state = mgr.load()
+        self.assertIn("vid1", state)
