@@ -2,15 +2,40 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from urllib.parse import parse_qs, urlparse
 
 logger = logging.getLogger(__name__)
 
 PODCASTINDEX_API_BASE = "https://api.podcastindex.org/api/1.0"
 MAX_EPISODES_PER_PODCAST = 3
+
+_PODCASTINDEX_URL_RE = re.compile(r"podcastindex\.org/podcast/(\d+)")
+
+
+def extract_podcast_id(url_or_id: str) -> tuple[str, str | None]:
+    """Extract podcast ID and optional episode ID from a PodcastIndex URL or raw ID."""
+    if url_or_id.isdigit():
+        return url_or_id, None
+
+    match = _PODCASTINDEX_URL_RE.search(url_or_id)
+    if not match:
+        raise ValueError(
+            f"Unsupported URL format: {url_or_id}\n"
+            "Only PodcastIndex URLs are supported. Examples:\n"
+            "  https://podcastindex.org/podcast/6958769\n"
+            "  https://podcastindex.org/podcast/6958769?episode=53451816130\n"
+            "  6958769  (raw podcast ID)\n"
+            "Find your podcast at https://podcastindex.org and use that URL."
+        )
+    podcast_id = match.group(1)
+    parsed = urlparse(url_or_id)
+    episode_param = parse_qs(parsed.query).get("episode", [None])[0]
+    return podcast_id, episode_param
 
 
 def _podcastindex_headers() -> dict[str, str]:

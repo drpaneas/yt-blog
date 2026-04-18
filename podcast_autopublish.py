@@ -2,7 +2,6 @@ import argparse
 import gc
 import json
 import logging
-import re
 import shutil
 import uuid
 import subprocess
@@ -10,10 +9,8 @@ import tempfile
 import tomllib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
-
 from hugo_formatter import add_hugo_front_matter
-from podcast_fetch import fetch_episodes, fetch_new_episodes, fetch_podcast_info
+from podcast_fetch import extract_podcast_id, fetch_episodes, fetch_new_episodes, fetch_podcast_info
 from podcast_transcript import download_audio, load_whisper_model, transcribe_audio
 from publish_utils import (
     STATE_DIR,
@@ -26,9 +23,6 @@ from publish_utils import (
     verify_blog_repo,
 )
 from state_manager import StateManager
-
-_PODCASTINDEX_URL_RE = re.compile(r"podcastindex\.org/podcast/(\d+)")
-
 
 def load_config(config_path: Path) -> dict:
     with open(config_path, "rb") as f:
@@ -57,25 +51,6 @@ def _find_existing_blog(episode_id: str, *search_dirs: Path) -> Path | None:
         if matches:
             return max(matches, key=lambda p: p.stat().st_mtime)
     return None
-
-
-def _extract_podcast_id(url_or_id: str) -> tuple[str, str | None]:
-    if url_or_id.isdigit():
-        return url_or_id, None
-    match = _PODCASTINDEX_URL_RE.search(url_or_id)
-    if not match:
-        raise ValueError(
-            f"Unsupported URL format: {url_or_id}\n"
-            "Only PodcastIndex URLs are supported. Examples:\n"
-            "  https://podcastindex.org/podcast/6958769\n"
-            "  https://podcastindex.org/podcast/6958769?episode=53451816130\n"
-            "  6958769  (raw podcast ID)\n"
-            "Find your podcast at https://podcastindex.org and use that URL."
-        )
-    podcast_id = match.group(1)
-    parsed = urlparse(url_or_id)
-    episode_param = parse_qs(parsed.query).get("episode", [None])[0]
-    return podcast_id, episode_param
 
 
 def generate_blog_post(
@@ -213,7 +188,7 @@ def run_single(
     youtube_repo = config["youtube_repo_dir"]
 
     try:
-        podcast_id, episode_param = _extract_podcast_id(url)
+        podcast_id, episode_param = extract_podcast_id(url)
     except ValueError as exc:
         logger.error("%s", exc)
         return 1
