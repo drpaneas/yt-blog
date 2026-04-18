@@ -7,7 +7,11 @@ import time
 import uuid
 import subprocess
 import tempfile
-import tomllib
+import sys
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from hugo_formatter import add_hugo_front_matter

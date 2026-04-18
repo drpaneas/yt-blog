@@ -3,7 +3,11 @@ import logging
 import re
 import shutil
 import subprocess
-import tomllib
+import sys
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
