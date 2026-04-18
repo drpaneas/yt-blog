@@ -10,6 +10,8 @@ Script repo for three workflows:
 
 ![Hugo blog with auto-published posts](assets/hugo-blog-screenshot.png)
 
+![LLM wiki knowledge graph](assets/llmwiki-graph-screenshot.png)
+
 This repo is intentionally a script-based project, not a packaged Python library.
 
 ## Requirements
