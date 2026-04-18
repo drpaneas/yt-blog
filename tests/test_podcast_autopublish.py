@@ -36,6 +36,28 @@ podcast_id = "789012"
         self.assertEqual(config["podcasts"][0]["name"], "Test Podcast")
         self.assertEqual(config["podcasts"][0]["podcast_id"], "123456")
 
+    def test_loads_podcast_hugo_config(self):
+        config = load_config(self._write_config("""
+[paths]
+blog_repo = "~/my-blog"
+youtube_repo_dir = "/tmp/youtube"
+
+[podcast_hugo]
+categories = ["shows"]
+tags = ["tech", "podcast"]
+"""))
+        self.assertEqual(config["podcast_hugo_categories"], ["shows"])
+        self.assertEqual(config["podcast_hugo_tags"], ["tech", "podcast"])
+
+    def test_podcast_hugo_defaults(self):
+        config = load_config(self._write_config("""
+[paths]
+blog_repo = "~/blog"
+youtube_repo_dir = "/tmp/yt"
+"""))
+        self.assertEqual(config["podcast_hugo_categories"], ["podcast"])
+        self.assertEqual(config["podcast_hugo_tags"], [])
+
     def test_no_podcasts_returns_empty_list(self):
         config = load_config(self._write_config("""
 [paths]

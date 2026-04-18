@@ -100,6 +100,10 @@ channel_id = "UCXzw-OdotBUcNA9yhuYQBwA"
 name = "Closer To Truth"
 channel_id = "UCl9StMQ79LtEvlrskzjoYbQ"
 
+[podcast_hugo]
+categories = ["podcast"]
+tags = ["ai"]
+
 # Add your podcasts below. Find podcast IDs at podcastindex.org
 # by searching for the podcast name.
 #

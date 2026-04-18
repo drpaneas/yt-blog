@@ -34,6 +34,7 @@ def load_config(config_path: Path) -> dict:
         raw = tomllib.load(f)
     paths = raw.get("paths", {})
     llmwiki_raw = paths.get("llmwiki_dir")
+    podcast_hugo = raw.get("podcast_hugo", {})
     return {
         "blog_repo": Path(paths["blog_repo"]).expanduser().resolve(),
         "blog_content_dir": paths.get("blog_content_dir", "content/post"),
@@ -42,6 +43,8 @@ def load_config(config_path: Path) -> dict:
         "llmwiki_dir": Path(llmwiki_raw).expanduser().resolve() if llmwiki_raw else None,
         "max_parallel": raw.get("max_parallel", 1),
         "podcasts": raw.get("podcast", []),
+        "podcast_hugo_categories": podcast_hugo.get("categories", ["podcast"]),
+        "podcast_hugo_tags": podcast_hugo.get("tags", []),
     }
 
 
@@ -124,6 +127,8 @@ def _publish_episode(
     blog_content_dir: str,
     llmwiki_dir: Path | None,
     title: str,
+    podcast_hugo_categories: list[str] | None = None,
+    podcast_hugo_tags: list[str] | None = None,
 ) -> tuple[str, bool]:
     """Copy blog to blog repo, add front matter, commit, and wiki copy.
 
@@ -131,6 +136,10 @@ def _publish_episode(
     """
     logger = logging.getLogger(__name__)
     podcast_slug = slugify(podcast_name)
+    if podcast_hugo_categories is None:
+        podcast_hugo_categories = ["podcast"]
+    if podcast_hugo_tags is None:
+        podcast_hugo_tags = []
 
     dest = blog_repo / blog_content_dir / podcast_slug / blog_path.name
     blog_copied = False
@@ -147,7 +156,7 @@ def _publish_episode(
         lint_markdown(dest)
         logger.info("[%s] Generating AI tags...", episode_id)
         ai_tags = generate_ai_tags(dest)
-        all_tags = [podcast_slug] + ai_tags
+        all_tags = list(podcast_hugo_tags) + [podcast_slug] + ai_tags
         seen = set()
         unique_tags = []
         for t in all_tags:
@@ -157,7 +166,7 @@ def _publish_episode(
         logger.info("[%s] Adding Hugo front matter to %s", episode_id, dest.name)
         extracted_title = add_hugo_front_matter(
             dest,
-            categories=["podcast"],
+            categories=podcast_hugo_categories,
             tags=unique_tags,
         )
         blog_copied = True
@@ -301,6 +310,8 @@ def run_single(
         eid, blog_path, podcast_name,
         blog_repo, blog_content_dir, llmwiki_dir,
         episode["title"],
+        podcast_hugo_categories=config["podcast_hugo_categories"],
+        podcast_hugo_tags=config["podcast_hugo_tags"],
     )
     if not success:
         return 1
@@ -470,6 +481,8 @@ def run(
             eid, blog_path, episode["podcast_name"],
             blog_repo, blog_content_dir, llmwiki_dir,
             episode["title"],
+            podcast_hugo_categories=config["podcast_hugo_categories"],
+            podcast_hugo_tags=config["podcast_hugo_tags"],
         )
         if not success:
             stats["failed"] += 1
@@ -525,7 +538,8 @@ def main() -> int:
         help="Whisper model to use (default: large-v3)",
     )
     args = parser.parse_args()
-    setup_logging("podcast-autopublish", verbose=args.verbose)
+    setup_logging("podcast-autopublish", verbose=args.verbose,
+                  log_file=STATE_DIR / "podcast-automation.log")
     if args.url:
         if args.dry_run:
             parser.error("--dry-run cannot be used with --url")
