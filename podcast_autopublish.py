@@ -37,6 +37,7 @@ def load_config(config_path: Path) -> dict:
         "youtube_repo_dir": Path(paths["youtube_repo_dir"]).expanduser().resolve(),
         "llmwiki_dir": Path(llmwiki_raw).expanduser().resolve() if llmwiki_raw else None,
         "max_parallel": raw.get("max_parallel", 1),
+        "max_episodes_per_podcast": raw.get("max_episodes_per_podcast", 3),
         "podcasts": raw.get("podcast", []),
         "podcast_hugo_categories": podcast_hugo.get("categories", ["podcast"]),
         "podcast_hugo_tags": podcast_hugo.get("tags", []),
@@ -325,7 +326,7 @@ def run(
             return 1
 
     logger.info("Polling PodcastIndex for %d podcasts...", len(config["podcasts"]))
-    all_episodes = fetch_new_episodes(config["podcasts"])
+    all_episodes = fetch_new_episodes(config["podcasts"], max_episodes=config["max_episodes_per_podcast"])
     logger.info("Found %d total episodes across all podcasts", len(all_episodes))
 
     candidates = [e for e in all_episodes if not state.is_seen(e["episode_id"])]

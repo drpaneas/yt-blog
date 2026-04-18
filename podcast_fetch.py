@@ -83,9 +83,11 @@ def fetch_podcast_info(podcast_id: str) -> dict | None:
     return feeds[0]
 
 
-def fetch_episodes(podcast_id: str) -> list[dict]:
+def fetch_episodes(
+    podcast_id: str, max_episodes: int = MAX_EPISODES_PER_PODCAST
+) -> list[dict]:
     try:
-        data = _api_get("episodes/byfeedid", {"id": podcast_id, "max": str(MAX_EPISODES_PER_PODCAST + 2)})
+        data = _api_get("episodes/byfeedid", {"id": podcast_id, "max": str(max_episodes + 2)})
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
         logger.error("Failed to fetch episodes for %s: %s", podcast_id, exc)
         return []
@@ -109,19 +111,21 @@ def fetch_episodes(podcast_id: str) -> list[dict]:
     return episodes
 
 
-def fetch_new_episodes(podcasts: list[dict]) -> list[dict]:
+def fetch_new_episodes(
+    podcasts: list[dict], max_episodes: int = MAX_EPISODES_PER_PODCAST
+) -> list[dict]:
     all_episodes = []
     for podcast in podcasts:
         pid = podcast["podcast_id"]
         name = podcast["name"]
-        episodes = fetch_episodes(pid)
+        episodes = fetch_episodes(pid, max_episodes=max_episodes)
         if not episodes:
             logger.warning("No episodes found for podcast %s (%s)", name, pid)
             continue
         logger.debug(
             "Found %d episodes for %s", len(episodes), name
         )
-        episodes = episodes[:MAX_EPISODES_PER_PODCAST]
+        episodes = episodes[:max_episodes]
         for ep in episodes:
             ep["podcast_name"] = name
             ep["podcast_id"] = pid
