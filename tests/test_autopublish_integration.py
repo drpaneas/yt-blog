@@ -32,7 +32,12 @@ class TestAutopublishDryRun(unittest.TestCase):
         self.yt_dir = self.tmp / "youtube"
         self.yt_dir.mkdir()
 
+        self.state_dir = self.tmp / "state"
+        self.state_dir.mkdir()
+
         config_text = f"""
+state_dir = "{self.state_dir}"
+
 [paths]
 blog_repo = "{self.blog_repo}"
 llmwiki_dir = "{self.wiki_dir}"
@@ -50,18 +55,14 @@ channel_id = "UCtest123"
 
     @patch("feed_checker.urllib.request.urlopen")
     def test_dry_run_does_not_modify_state(self, mock_urlopen):
-        state_dir = self.tmp / "state"
-        state_dir.mkdir()
-
         mock_resp = MagicMock()
         mock_resp.read.return_value = SAMPLE_ATOM.encode("utf-8")
         mock_resp.__enter__ = lambda s: s
         mock_resp.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_resp
 
-        with patch("autopublish.DEFAULT_STATE_DIR", state_dir):
-            result = run(self.config_path, dry_run=True)
+        result = run(self.config_path, dry_run=True)
 
         self.assertEqual(result, 0)
-        state_file = state_dir / "seen_videos.json"
+        state_file = self.state_dir / "seen_videos.json"
         self.assertFalse(state_file.exists())
