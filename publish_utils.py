@@ -8,11 +8,9 @@ LOG_FILE = DEFAULT_STATE_DIR / "automation.log"
 
 
 def setup_logging(log_tag: str, verbose: bool = False, log_file: Path | None = None) -> None:
-    DEFAULT_STATE_DIR.mkdir(parents=True, exist_ok=True)
     level = logging.DEBUG if verbose else logging.INFO
     target = log_file if log_file is not None else LOG_FILE
-    if log_file is not None:
-        target.parent.mkdir(parents=True, exist_ok=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=level,
         format=f"%(asctime)s [{log_tag}] %(levelname)s: %(message)s",
