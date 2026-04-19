@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 from feed_checker import fetch_new_videos
 from hugo_formatter import add_hugo_front_matter
 from publish_utils import (
-    STATE_DIR,
+    DEFAULT_STATE_DIR,
     generate_ai_tags,
     lint_markdown,
     push_blog_repo,
@@ -32,7 +32,9 @@ def load_config(config_path: Path) -> dict:
     paths = raw.get("paths", {})
     hugo = raw.get("hugo", {})
     llmwiki_raw = paths.get("llmwiki_dir")
+    state_dir_raw = raw.get("state_dir")
     return {
+        "state_dir": Path(state_dir_raw).expanduser().resolve() if state_dir_raw else DEFAULT_STATE_DIR,
         "blog_repo": Path(paths["blog_repo"]).expanduser().resolve(),
         "blog_content_dir": paths.get("blog_content_dir", "content/post"),
         "blog_branch": paths.get("blog_branch", "master"),
@@ -122,7 +124,7 @@ def _extract_video_id(url: str) -> str | None:
 
 def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
     config = load_config(config_path)
-    state = StateManager(STATE_DIR, prefix="youtube:")
+    state = StateManager(config["state_dir"], prefix="youtube:")
     logger = logging.getLogger(__name__)
 
     blog_repo = config["blog_repo"]
@@ -241,7 +243,7 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
 
 def run(config_path: Path, dry_run: bool = False) -> int:
     config = load_config(config_path)
-    state = StateManager(STATE_DIR, prefix="youtube:")
+    state = StateManager(config["state_dir"], prefix="youtube:")
     logger = logging.getLogger(__name__)
 
     blog_repo = config["blog_repo"]
@@ -440,7 +442,9 @@ def main() -> int:
         help="Path to channels.toml config file",
     )
     args = parser.parse_args()
-    setup_logging("autopublish", verbose=args.verbose)
+    config = load_config(args.config)
+    setup_logging("autopublish", verbose=args.verbose,
+                  log_file=config["state_dir"] / "automation.log")
     if args.url:
         if args.dry_run:
             parser.error("--dry-run cannot be used with --url")

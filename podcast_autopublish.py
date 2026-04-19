@@ -18,7 +18,7 @@ from hugo_formatter import add_hugo_front_matter
 from podcast_fetch import extract_podcast_id, fetch_episodes, fetch_new_episodes, fetch_podcast_info
 from podcast_transcript import download_audio, load_whisper_model, transcribe_audio
 from publish_utils import (
-    STATE_DIR,
+    DEFAULT_STATE_DIR,
     generate_ai_tags,
     lint_markdown,
     push_blog_repo,
@@ -33,8 +33,10 @@ def load_config(config_path: Path) -> dict:
         raw = tomllib.load(f)
     paths = raw.get("paths", {})
     llmwiki_raw = paths.get("llmwiki_dir")
+    state_dir_raw = raw.get("state_dir")
     podcast_hugo = raw.get("podcast_hugo", {})
     return {
+        "state_dir": Path(state_dir_raw).expanduser().resolve() if state_dir_raw else DEFAULT_STATE_DIR,
         "blog_repo": Path(paths["blog_repo"]).expanduser().resolve(),
         "blog_content_dir": paths.get("blog_content_dir", "content/post"),
         "blog_branch": paths.get("blog_branch", "master"),
@@ -199,7 +201,7 @@ def run_single(
     generate_only: bool = False,
 ) -> int:
     config = load_config(config_path)
-    state = StateManager(STATE_DIR, prefix="podcast:")
+    state = StateManager(config["state_dir"], prefix="podcast:")
     logger = logging.getLogger(__name__)
 
     blog_repo = config["blog_repo"]
@@ -329,7 +331,7 @@ def run(
     whisper_model: str = "large-v3",
 ) -> int:
     config = load_config(config_path)
-    state = StateManager(STATE_DIR, prefix="podcast:")
+    state = StateManager(config["state_dir"], prefix="podcast:")
     logger = logging.getLogger(__name__)
 
     blog_repo = config["blog_repo"]
@@ -536,8 +538,9 @@ def main() -> int:
         help="Whisper model to use (default: large-v3)",
     )
     args = parser.parse_args()
+    config = load_config(args.config)
     setup_logging("podcast-autopublish", verbose=args.verbose,
-                  log_file=STATE_DIR / "podcast-automation.log")
+                  log_file=config["state_dir"] / "podcast-automation.log")
     if args.url:
         if args.dry_run:
             parser.error("--dry-run cannot be used with --url")

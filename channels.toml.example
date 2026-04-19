@@ -5,6 +5,11 @@
 max_parallel = 5
 # max_episodes_per_podcast = 3
 
+# Optional: custom state directory for this config.
+# Each config can have its own state to track processed items independently.
+# Defaults to ~/.youtube-blog-automation/ if omitted.
+# state_dir = "~/.youtube-blog-automation/my-project"
+
 [paths]
 # Local clone of your Hugo blog repo
 blog_repo = "~/myblog"

@@ -59,7 +59,7 @@ channel_id = "UCtest123"
         mock_resp.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_resp
 
-        with patch("autopublish.STATE_DIR", state_dir):
+        with patch("autopublish.DEFAULT_STATE_DIR", state_dir):
             result = run(self.config_path, dry_run=True)
 
         self.assertEqual(result, 0)

@@ -3,14 +3,16 @@ import re
 import subprocess
 from pathlib import Path
 
-STATE_DIR = Path.home() / ".youtube-blog-automation"
-LOG_FILE = STATE_DIR / "automation.log"
+DEFAULT_STATE_DIR = Path.home() / ".youtube-blog-automation"
+LOG_FILE = DEFAULT_STATE_DIR / "automation.log"
 
 
 def setup_logging(log_tag: str, verbose: bool = False, log_file: Path | None = None) -> None:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    DEFAULT_STATE_DIR.mkdir(parents=True, exist_ok=True)
     level = logging.DEBUG if verbose else logging.INFO
     target = log_file if log_file is not None else LOG_FILE
+    if log_file is not None:
+        target.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=level,
         format=f"%(asctime)s [{log_tag}] %(levelname)s: %(message)s",

@@ -85,6 +85,25 @@ youtube_repo_dir = "/tmp/yt"
 """))
         self.assertEqual(config["max_parallel"], 5)
 
+    def test_state_dir_default(self):
+        config = load_config(self._write_config("""
+[paths]
+blog_repo = "~/blog"
+youtube_repo_dir = "/tmp/yt"
+"""))
+        from publish_utils import DEFAULT_STATE_DIR
+        self.assertEqual(config["state_dir"], DEFAULT_STATE_DIR)
+
+    def test_state_dir_custom(self):
+        config = load_config(self._write_config("""
+state_dir = "/tmp/my-state"
+
+[paths]
+blog_repo = "~/blog"
+youtube_repo_dir = "/tmp/yt"
+"""))
+        self.assertEqual(config["state_dir"], Path("/tmp/my-state").resolve())
+
     def test_optional_llmwiki(self):
         config = load_config(self._write_config("""
 [paths]
