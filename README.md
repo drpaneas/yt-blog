@@ -48,6 +48,19 @@ cp channels.toml.example channels.toml
 - `[[podcast]]` entries - PodcastIndex podcast IDs to poll
 - `max_parallel` - max concurrent Claude instances for blog generation
 - `max_episodes_per_podcast` - how many recent episodes to fetch per podcast
+- `state_dir` - custom state directory for tracking processed items (default: `~/.youtube-blog-automation/`)
+
+### Multiple pipelines
+
+You can run independent pipelines from the same codebase by using separate config files with different `state_dir` values:
+
+```bash
+python3 autopublish.py --config ~/astronomy/channels.toml
+python3 autopublish.py --config ~/retro-gaming/channels.toml
+python3 podcast_autopublish.py --config ~/trips/channels.toml
+```
+
+Each config can point to a different blog repo, LLM wiki, and set of channels/podcasts. Set a unique `state_dir` per config so processed items are tracked independently.
 
 ### Environment variables
 
