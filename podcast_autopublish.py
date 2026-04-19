@@ -24,7 +24,6 @@ from publish_utils import (
     push_blog_repo,
     setup_logging,
     slugify,
-    update_wiki,
     verify_blog_repo,
 )
 from state_manager import StateManager
@@ -188,8 +187,6 @@ def _publish_episode(
             logger.info("[%s] Copying to LLM wiki raw: %s", episode_id, blog_path.name)
             wiki_dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(dest, wiki_dest)
-            logger.info("[%s] Updating wiki...", episode_id)
-            update_wiki(llmwiki_dir)
 
     return extracted_title, True
 
