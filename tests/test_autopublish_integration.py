@@ -3,7 +3,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch, MagicMock
 
-from autopublish import run
+import subprocess
+
+from autopublish import run, _detect_channel_name
 
 SAMPLE_ATOM = """<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns:yt="http://www.youtube.com/xml/schemas/2015"
@@ -66,3 +68,45 @@ channel_id = "UCtest123"
         self.assertEqual(result, 0)
         state_file = self.state_dir / "seen_videos.json"
         self.assertFalse(state_file.exists())
+
+
+class TestDetectChannelName(unittest.TestCase):
+    @patch("autopublish.subprocess.run")
+    def test_returns_channel_name_from_ytdlp(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="AstroBackyard\n", stderr=""
+        )
+        result = _detect_channel_name("https://www.youtube.com/watch?v=abc123")
+        self.assertEqual(result, "AstroBackyard")
+        call_args = mock_run.call_args[0][0]
+        self.assertEqual(call_args[0], "yt-dlp")
+        self.assertIn("--print", call_args)
+        self.assertIn("channel", call_args)
+
+    @patch("autopublish.subprocess.run")
+    def test_returns_manual_on_failure(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="ERROR"
+        )
+        result = _detect_channel_name("https://www.youtube.com/watch?v=abc123")
+        self.assertEqual(result, "manual")
+
+    @patch("autopublish.subprocess.run")
+    def test_returns_manual_on_empty_output(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="\n", stderr=""
+        )
+        result = _detect_channel_name("https://www.youtube.com/watch?v=abc123")
+        self.assertEqual(result, "manual")
+
+    @patch("autopublish.subprocess.run")
+    def test_returns_manual_on_timeout(self, mock_run):
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="yt-dlp", timeout=30)
+        result = _detect_channel_name("https://www.youtube.com/watch?v=abc123")
+        self.assertEqual(result, "manual")
+
+    @patch("autopublish.subprocess.run")
+    def test_returns_manual_when_ytdlp_missing(self, mock_run):
+        mock_run.side_effect = FileNotFoundError("yt-dlp not found")
+        result = _detect_channel_name("https://www.youtube.com/watch?v=abc123")
+        self.assertEqual(result, "manual")

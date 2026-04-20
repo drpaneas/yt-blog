@@ -78,22 +78,18 @@ def generate_blog_post(video_url: str, video_id: str, youtube_repo: Path) -> Pat
 
 def _detect_channel_name(video_url: str) -> str:
     logger = logging.getLogger(__name__)
-    prompt = (
-        "What is the YouTube channel name for this video? "
-        "Return only the channel name, nothing else. "
-        f"URL: {video_url}"
-    )
     try:
         result = subprocess.run(
-            ["claude", "-p", prompt],
+            ["yt-dlp", "--print", "channel", "--skip-download", "--no-warnings", video_url],
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=30,
         )
         if result.returncode == 0 and result.stdout.strip():
             name = result.stdout.strip().split("\n")[0].strip()
             logger.info("Detected channel name: %s", name)
             return name
+        logger.warning("yt-dlp returned no channel name (exit %d): %s", result.returncode, result.stderr.strip())
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
         logger.warning("Channel detection failed: %s", exc)
     return "manual"
