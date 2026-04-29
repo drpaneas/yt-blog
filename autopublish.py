@@ -266,7 +266,7 @@ def run(config_path: Path, dry_run: bool = False) -> int:
     llmwiki_dir = config["llmwiki_dir"]
     youtube_repo = config["youtube_repo_dir"]
 
-    if not dry_run:
+    if not dry_run and blog_repo is not None:
         try:
             verify_blog_repo(blog_repo, blog_branch)
         except RuntimeError as exc:
@@ -311,7 +311,9 @@ def run(config_path: Path, dry_run: bool = False) -> int:
     for video in approved:
         vid = video["video_id"]
         channel_slug = slugify(video["channel"])
-        search_dirs = [youtube_repo, blog_repo / blog_content_dir / channel_slug, blog_repo / blog_content_dir]
+        search_dirs = [youtube_repo]
+        if blog_repo is not None:
+            search_dirs.extend([blog_repo / blog_content_dir / channel_slug, blog_repo / blog_content_dir])
         if llmwiki_dir is not None:
             search_dirs.append(llmwiki_dir / "raw")
         existing = _find_existing_blog(vid, *search_dirs)
@@ -358,54 +360,56 @@ def run(config_path: Path, dry_run: bool = False) -> int:
         if blog_path is None:
             continue
 
-        dest = blog_repo / blog_content_dir / channel_slug / blog_path.name
-        blog_copied = False
-        if dest.exists():
-            logger.info("[%s] Already in blog repo, skipping copy", vid)
-        else:
-            logger.info("[%s] Copying to blog repo: %s/%s", vid, channel_slug, blog_path.name)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(blog_path, dest)
-            blog_copied = True
+        extracted_title = title
+        if blog_repo is not None:
+            dest = blog_repo / blog_content_dir / channel_slug / blog_path.name
+            blog_copied = False
+            if dest.exists():
+                logger.info("[%s] Already in blog repo, skipping copy", vid)
+            else:
+                logger.info("[%s] Copying to blog repo: %s/%s", vid, channel_slug, blog_path.name)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(blog_path, dest)
+                blog_copied = True
 
-        if not dest.read_text(encoding="utf-8").startswith("+++\n"):
-            logger.info("[%s] Linting markdown...", vid)
-            lint_markdown(dest)
-            logger.info("[%s] Generating AI tags...", vid)
-            ai_tags = generate_ai_tags(dest)
-            all_tags = list(config["hugo_tags"]) + [channel_slug] + ai_tags
-            seen = set()
-            unique_tags = []
-            for t in all_tags:
-                if t not in seen:
-                    seen.add(t)
-                    unique_tags.append(t)
-            logger.info("[%s] Adding Hugo front matter to %s", vid, dest.name)
-            extracted_title = add_hugo_front_matter(
-                dest,
-                categories=config["hugo_categories"],
-                tags=unique_tags,
-            )
-            blog_copied = True
-        else:
-            logger.info("[%s] Hugo front matter already present", vid)
-            extracted_title = title
+            if not dest.read_text(encoding="utf-8").startswith("+++\n"):
+                logger.info("[%s] Linting markdown...", vid)
+                lint_markdown(dest)
+                logger.info("[%s] Generating AI tags...", vid)
+                ai_tags = generate_ai_tags(dest)
+                all_tags = list(config["hugo_tags"]) + [channel_slug] + ai_tags
+                seen = set()
+                unique_tags = []
+                for t in all_tags:
+                    if t not in seen:
+                        seen.add(t)
+                        unique_tags.append(t)
+                logger.info("[%s] Adding Hugo front matter to %s", vid, dest.name)
+                extracted_title = add_hugo_front_matter(
+                    dest,
+                    categories=config["hugo_categories"],
+                    tags=unique_tags,
+                )
+                blog_copied = True
+            else:
+                logger.info("[%s] Hugo front matter already present", vid)
 
-        if blog_copied:
-            logger.info("[%s] Committing to blog repo...", vid)
-            if not push_blog_repo(blog_repo, dest, [extracted_title]):
-                logger.error("[%s] Git commit failed - will not mark as seen", vid)
-                stats["failed"] += 1
-                continue
+            if blog_copied:
+                logger.info("[%s] Committing to blog repo...", vid)
+                if not push_blog_repo(blog_repo, dest, [extracted_title]):
+                    logger.error("[%s] Git commit failed - will not mark as seen", vid)
+                    stats["failed"] += 1
+                    continue
 
         if llmwiki_dir is not None:
+            wiki_src = dest if blog_repo is not None else blog_path
             wiki_dest = llmwiki_dir / "raw" / blog_path.name
             if wiki_dest.exists():
                 logger.info("[%s] Already in LLM wiki raw, skipping copy", vid)
             else:
                 logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_path.name)
                 wiki_dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(dest, wiki_dest)
+                shutil.copy2(wiki_src, wiki_dest)
 
         state.mark_seen(vid, {
             "title": extracted_title,

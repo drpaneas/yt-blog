@@ -112,6 +112,45 @@ class TestDetectChannelName(unittest.TestCase):
         self.assertEqual(result, "manual")
 
 
+class TestBatchRunNoBlog(unittest.TestCase):
+    """Batch run() should work without blog_repo configured."""
+
+    def setUp(self):
+        self.tmpdir = TemporaryDirectory()
+        self.tmp = Path(self.tmpdir.name)
+        self.yt_dir = self.tmp / "youtube"
+        self.yt_dir.mkdir()
+        self.state_dir = self.tmp / "state"
+        self.state_dir.mkdir()
+
+        config_text = f"""
+state_dir = "{self.state_dir}"
+
+[paths]
+youtube_repo_dir = "{self.yt_dir}"
+
+[[channel]]
+name = "Test Channel"
+channel_id = "UCtest123"
+"""
+        self.config_path = self.tmp / "channels.toml"
+        self.config_path.write_text(config_text)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    @patch("feed_checker.urllib.request.urlopen")
+    def test_dry_run_without_blog_repo(self, mock_urlopen):
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = SAMPLE_ATOM.encode("utf-8")
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        result = run(self.config_path, dry_run=True)
+        self.assertEqual(result, 0)
+
+
 class TestRunSingleNoBlog(unittest.TestCase):
     """run_single should generate content and track state even without blog_repo."""
 
