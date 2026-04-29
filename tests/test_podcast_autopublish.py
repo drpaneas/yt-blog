@@ -209,3 +209,54 @@ class TestGenerateBlogPost(unittest.TestCase):
         result = generate_blog_post(transcript, "12345", "https://example.com/ep", self.tmp)
 
         self.assertIsNone(result)
+
+
+class TestPublishEpisodeNoBlog(unittest.TestCase):
+    """_publish_episode should succeed and return title when blog_repo is None."""
+
+    def setUp(self):
+        self.tmpdir = TemporaryDirectory()
+        self.tmp = Path(self.tmpdir.name)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_returns_title_and_success_without_blog(self):
+        blog_file = self.tmp / "podcast-blog-test-ep-12345.md"
+        blog_file.write_text("# My Episode Title\n\nContent here.")
+
+        from podcast_autopublish import _publish_episode
+        title, success = _publish_episode(
+            episode_id="12345",
+            blog_path=blog_file,
+            podcast_name="Test Pod",
+            blog_repo=None,
+            blog_content_dir=None,
+            llmwiki_dir=None,
+            title="Fallback Title",
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(title, "My Episode Title")
+
+    def test_copies_to_wiki_without_blog(self):
+        blog_file = self.tmp / "podcast-blog-test-ep-12345.md"
+        blog_file.write_text("# Title\n\nContent.")
+        wiki_dir = self.tmp / "wiki"
+        wiki_dir.mkdir()
+        (wiki_dir / "raw").mkdir()
+
+        from podcast_autopublish import _publish_episode
+        title, success = _publish_episode(
+            episode_id="12345",
+            blog_path=blog_file,
+            podcast_name="Test Pod",
+            blog_repo=None,
+            blog_content_dir=None,
+            llmwiki_dir=wiki_dir,
+            title="Fallback",
+        )
+
+        self.assertTrue(success)
+        wiki_file = wiki_dir / "raw" / "podcast-blog-test-ep-12345.md"
+        self.assertTrue(wiki_file.exists())

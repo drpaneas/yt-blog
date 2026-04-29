@@ -2,6 +2,7 @@ import argparse
 import gc
 import json
 import logging
+import re
 import shutil
 import time
 import uuid
@@ -126,8 +127,8 @@ def _publish_episode(
     episode_id: str,
     blog_path: Path,
     podcast_name: str,
-    blog_repo: Path,
-    blog_content_dir: str,
+    blog_repo: Path | None,
+    blog_content_dir: str | None,
     llmwiki_dir: Path | None,
     title: str,
     podcast_hugo_categories: list[str] | None = None,
@@ -144,53 +145,65 @@ def _publish_episode(
     if podcast_hugo_tags is None:
         podcast_hugo_tags = []
 
-    dest = blog_repo / blog_content_dir / podcast_slug / blog_path.name
-    blog_copied = False
-    if dest.exists():
-        logger.info("[%s] Already in blog repo, skipping copy", episode_id)
-    else:
-        logger.info("[%s] Copying to blog repo: %s/%s", episode_id, podcast_slug, blog_path.name)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(blog_path, dest)
-        blog_copied = True
+    extracted_title = title
+    dest = None
 
-    if not dest.read_text(encoding="utf-8").startswith("+++\n"):
-        logger.info("[%s] Linting markdown...", episode_id)
-        lint_markdown(dest)
-        logger.info("[%s] Generating AI tags...", episode_id)
-        ai_tags = generate_ai_tags(dest)
-        all_tags = list(podcast_hugo_tags) + [podcast_slug] + ai_tags
-        seen = set()
-        unique_tags = []
-        for t in all_tags:
-            if t not in seen:
-                seen.add(t)
-                unique_tags.append(t)
-        logger.info("[%s] Adding Hugo front matter to %s", episode_id, dest.name)
-        extracted_title = add_hugo_front_matter(
-            dest,
-            categories=podcast_hugo_categories,
-            tags=unique_tags,
-        )
-        blog_copied = True
-    else:
-        logger.info("[%s] Hugo front matter already present", episode_id)
-        extracted_title = title
+    if blog_repo is not None:
+        dest = blog_repo / blog_content_dir / podcast_slug / blog_path.name
+        blog_copied = False
+        if dest.exists():
+            logger.info("[%s] Already in blog repo, skipping copy", episode_id)
+        else:
+            logger.info("[%s] Copying to blog repo: %s/%s", episode_id, podcast_slug, blog_path.name)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(blog_path, dest)
+            blog_copied = True
 
-    if blog_copied:
-        logger.info("[%s] Committing to blog repo...", episode_id)
-        if not push_blog_repo(blog_repo, dest, [extracted_title]):
-            logger.error("[%s] Git commit failed - will not mark as seen", episode_id)
-            return extracted_title, False
+        if not dest.read_text(encoding="utf-8").startswith("+++\n"):
+            logger.info("[%s] Linting markdown...", episode_id)
+            lint_markdown(dest)
+            logger.info("[%s] Generating AI tags...", episode_id)
+            ai_tags = generate_ai_tags(dest)
+            all_tags = list(podcast_hugo_tags) + [podcast_slug] + ai_tags
+            seen = set()
+            unique_tags = []
+            for t in all_tags:
+                if t not in seen:
+                    seen.add(t)
+                    unique_tags.append(t)
+            logger.info("[%s] Adding Hugo front matter to %s", episode_id, dest.name)
+            extracted_title = add_hugo_front_matter(
+                dest,
+                categories=podcast_hugo_categories,
+                tags=unique_tags,
+            )
+            blog_copied = True
+        else:
+            logger.info("[%s] Hugo front matter already present", episode_id)
+            extracted_title = title
+
+        if blog_copied:
+            logger.info("[%s] Committing to blog repo...", episode_id)
+            if not push_blog_repo(blog_repo, dest, [extracted_title]):
+                logger.error("[%s] Git commit failed - will not mark as seen", episode_id)
+                return extracted_title, False
+    else:
+        text = blog_path.read_text(encoding="utf-8")
+        for line in text.split("\n"):
+            m = re.match(r"^#\s+(.+)$", line)
+            if m:
+                extracted_title = m.group(1).strip()
+                break
 
     if llmwiki_dir is not None:
+        wiki_src = dest if dest is not None else blog_path
         wiki_dest = llmwiki_dir / "raw" / blog_path.name
         if wiki_dest.exists():
             logger.info("[%s] Already in LLM wiki raw, skipping copy", episode_id)
         else:
             logger.info("[%s] Copying to LLM wiki raw: %s", episode_id, blog_path.name)
             wiki_dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(dest, wiki_dest)
+            shutil.copy2(wiki_src, wiki_dest)
 
     return extracted_title, True
 
