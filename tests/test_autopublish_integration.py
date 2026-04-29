@@ -110,3 +110,47 @@ class TestDetectChannelName(unittest.TestCase):
         mock_run.side_effect = FileNotFoundError("yt-dlp not found")
         result = _detect_channel_name("https://www.youtube.com/watch?v=abc123")
         self.assertEqual(result, "manual")
+
+
+class TestRunSingleNoBlog(unittest.TestCase):
+    """run_single should generate content and track state even without blog_repo."""
+
+    def setUp(self):
+        self.tmpdir = TemporaryDirectory()
+        self.tmp = Path(self.tmpdir.name)
+        self.yt_dir = self.tmp / "youtube"
+        self.yt_dir.mkdir()
+        self.state_dir = self.tmp / "state"
+        self.state_dir.mkdir()
+
+        config_text = f"""
+state_dir = "{self.state_dir}"
+
+[paths]
+youtube_repo_dir = "{self.yt_dir}"
+"""
+        self.config_path = self.tmp / "channels.toml"
+        self.config_path.write_text(config_text)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    @patch("autopublish._detect_channel_name", return_value="Test Channel")
+    @patch("autopublish.generate_blog_post")
+    def test_generates_and_marks_seen_without_blog(self, mock_gen, mock_detect):
+        blog_file = self.yt_dir / "youtube-blog-test-vid123.md"
+        blog_file.write_text("# Test Post\n\nSome content here.")
+        mock_gen.return_value = blog_file
+
+        from autopublish import run_single
+        result = run_single(
+            self.config_path,
+            "https://www.youtube.com/watch?v=vid123",
+        )
+
+        self.assertEqual(result, 0)
+        state_file = self.state_dir / "seen_videos.json"
+        self.assertTrue(state_file.exists())
+        import json
+        state_data = json.loads(state_file.read_text())
+        self.assertIn("youtube:vid123", state_data)
