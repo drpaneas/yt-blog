@@ -266,7 +266,7 @@ def run_single(
         logger.info("[%s] Already processed, skipping. Use --force to reprocess.", eid)
         return 0
 
-    if not generate_only:
+    if not generate_only and blog_repo is not None:
         try:
             verify_blog_repo(blog_repo, blog_branch)
         except RuntimeError as exc:
@@ -275,16 +275,22 @@ def run_single(
 
     if force:
         logger.info("[%s] --force: removing existing files before regenerating", eid)
-        for d in [youtube_repo, blog_repo / blog_content_dir / podcast_slug, blog_repo / blog_content_dir]:
-            for f in d.glob(f"podcast-blog-*-{eid}.md"):
-                logger.info("[%s] Deleting: %s", eid, f)
-                f.unlink()
+        for f in youtube_repo.glob(f"podcast-blog-*-{eid}.md"):
+            logger.info("[%s] Deleting: %s", eid, f)
+            f.unlink()
+        if blog_repo is not None:
+            for d in [blog_repo / blog_content_dir / podcast_slug, blog_repo / blog_content_dir]:
+                for f in d.glob(f"podcast-blog-*-{eid}.md"):
+                    logger.info("[%s] Deleting: %s", eid, f)
+                    f.unlink()
         if llmwiki_dir is not None:
             for f in (llmwiki_dir / "raw").glob(f"podcast-blog-*-{eid}.md"):
                 logger.info("[%s] Deleting: %s", eid, f)
                 f.unlink()
 
-    search_dirs = [youtube_repo, blog_repo / blog_content_dir / podcast_slug, blog_repo / blog_content_dir]
+    search_dirs = [youtube_repo]
+    if blog_repo is not None:
+        search_dirs.extend([blog_repo / blog_content_dir / podcast_slug, blog_repo / blog_content_dir])
     if llmwiki_dir is not None:
         search_dirs.append(llmwiki_dir / "raw")
     blog_path = _find_existing_blog(eid, *search_dirs)
@@ -355,7 +361,7 @@ def run(
     llmwiki_dir = config["llmwiki_dir"]
     youtube_repo = config["youtube_repo_dir"]
 
-    if not dry_run:
+    if not dry_run and blog_repo is not None:
         try:
             verify_blog_repo(blog_repo, blog_branch)
         except RuntimeError as exc:
@@ -403,7 +409,9 @@ def run(
     for episode in approved:
         eid = episode["episode_id"]
         podcast_slug = slugify(episode["podcast_name"])
-        search_dirs = [youtube_repo, blog_repo / blog_content_dir / podcast_slug, blog_repo / blog_content_dir]
+        search_dirs = [youtube_repo]
+        if blog_repo is not None:
+            search_dirs.extend([blog_repo / blog_content_dir / podcast_slug, blog_repo / blog_content_dir])
         if llmwiki_dir is not None:
             search_dirs.append(llmwiki_dir / "raw")
         existing = _find_existing_blog(eid, *search_dirs)

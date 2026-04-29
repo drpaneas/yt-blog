@@ -260,3 +260,31 @@ class TestPublishEpisodeNoBlog(unittest.TestCase):
         self.assertTrue(success)
         wiki_file = wiki_dir / "raw" / "podcast-blog-test-ep-12345.md"
         self.assertTrue(wiki_file.exists())
+
+
+class TestRunNoBlog(unittest.TestCase):
+    """Podcast run functions should work without blog_repo."""
+
+    def setUp(self):
+        self.tmpdir = TemporaryDirectory()
+        self.tmp = Path(self.tmpdir.name)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _write_config(self, content: str) -> Path:
+        p = self.tmp / "channels.toml"
+        p.write_text(content)
+        return p
+
+    def test_load_config_no_blog(self):
+        config = load_config(self._write_config("""
+[paths]
+youtube_repo_dir = "/tmp/yt"
+
+[[podcast]]
+name = "Test Pod"
+podcast_id = "123"
+"""))
+        self.assertIsNone(config["blog_repo"])
+        self.assertEqual(len(config["podcasts"]), 1)
