@@ -35,11 +35,13 @@ def load_config(config_path: Path) -> dict:
     llmwiki_raw = paths.get("llmwiki_dir")
     state_dir_raw = raw.get("state_dir")
     podcast_hugo = raw.get("podcast_hugo", {})
+    blog_repo_raw = paths.get("blog_repo")
+    blog_repo = Path(blog_repo_raw).expanduser().resolve() if blog_repo_raw else None
     return {
         "state_dir": Path(state_dir_raw).expanduser().resolve() if state_dir_raw else DEFAULT_STATE_DIR,
-        "blog_repo": Path(paths["blog_repo"]).expanduser().resolve(),
-        "blog_content_dir": paths.get("blog_content_dir", "content/post"),
-        "blog_branch": paths.get("blog_branch", "master"),
+        "blog_repo": blog_repo,
+        "blog_content_dir": paths.get("blog_content_dir", "content/post") if blog_repo else None,
+        "blog_branch": paths.get("blog_branch", "master") if blog_repo else None,
         "youtube_repo_dir": Path(paths["youtube_repo_dir"]).expanduser().resolve(),
         "llmwiki_dir": Path(llmwiki_raw).expanduser().resolve() if llmwiki_raw else None,
         "max_parallel": raw.get("max_parallel", 1),
