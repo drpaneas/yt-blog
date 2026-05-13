@@ -222,7 +222,7 @@ Fetches the transcript, reads `pedagogic.md` for style, derives an outline, and 
 /youtube-eyes <youtube-url>
 ```
 
-Same pedagogic style as `/youtube-blog`, but also extracts video frames (code screenshots, diagrams, slides) and embeds them in the article. Outputs a Hugo page bundle (directory with `index.md` + frame PNGs) instead of a flat `.md` file. Code frames are converted to fenced code blocks via OCR; diagram frames are embedded as images.
+Same pedagogic style as `/youtube-blog`, but also extracts video frames (code screenshots, diagrams, slides) and reconstructs their content in the article. Outputs a Hugo page bundle (directory with `index.md` + any remaining images) instead of a flat `.md` file. Code frames are transcribed into fenced code blocks, diagrams are reconstructed as ASCII art or Markdown, and slides are converted to text. Screenshots are only embedded when the visual is too complex to reproduce faithfully in text.
 
 Falls back to transcript-only mode if frame extraction fails (video unavailable, ffmpeg missing, etc.).
 
