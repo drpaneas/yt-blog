@@ -48,6 +48,14 @@ class TestYoutubeVideoId(unittest.TestCase):
         self.assertIsNone(_youtube_video_id(""))
 
 
+try:
+    import numpy as np
+    _HAS_NUMPY = True
+except ImportError:
+    _HAS_NUMPY = False
+
+
+@unittest.skipUnless(_HAS_NUMPY, "numpy not available")
 class TestDhash(unittest.TestCase):
     def test_identical_images_same_hash(self):
         import numpy as np

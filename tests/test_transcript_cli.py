@@ -102,6 +102,7 @@ class TranscriptCliTests(unittest.TestCase):
             "https://example.com/subtitles.vtt",
             ANY,
             allow_non_english=False,
+            cookies_from_browser=None,
         )
 
     def test_main_default_url_mode_rejects_non_english_subtitles(self) -> None:
@@ -150,6 +151,7 @@ class TranscriptCliTests(unittest.TestCase):
             "https://www.youtube.com/watch?v=abc123",
             ANY,
             allow_non_english=True,
+            cookies_from_browser=None,
         )
 
     def test_main_json_output_includes_cleaned_text_and_language(self) -> None:
@@ -216,6 +218,7 @@ class TranscriptCliTests(unittest.TestCase):
             "https://www.youtube.com/watch?v=abc123",
             ANY,
             allow_non_english=False,
+            cookies_from_browser=None,
         )
         out_dir = fetch_mock.call_args[0][1]
         self.assertNotEqual(out_dir, Path.cwd())
