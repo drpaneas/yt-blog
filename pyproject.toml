@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "youtube-tools"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "yt-dlp>=2026.03.17",
+    "openai-whisper",
+    "tomli>=2.0.0;python_version<'3.11'",
+]
+
+[project.scripts]
+transcript-cli = "transcript_cli:main"
+podcast-transcript-cli = "podcast_transcript_cli:main"
+autopublish = "autopublish:main"
+podcast-autopublish = "podcast_autopublish:main"
+
+[tool.setuptools]
+py-modules = [
+    "transcript_cli",
+    "podcast_transcript_cli",
+    "autopublish",
+    "podcast_autopublish",
+    "youtube_fetch",
+    "vtt_cleaner",
+    "podcast_fetch",
+    "podcast_transcript",
+    "feed_checker",
+    "hugo_formatter",
+    "publish_utils",
+    "relevance_filter",
+    "state_manager",
+]

@@ -12,7 +12,7 @@ Script repo for three workflows:
 
 ![LLM wiki knowledge graph](assets/llmwiki-graph-screenshot.png)
 
-This repo is intentionally a script-based project, not a packaged Python library.
+The project can be used as loose scripts or installed as a Python package with CLI entry points (see [Install](#install)).
 
 ## Requirements
 
@@ -23,13 +23,55 @@ This repo is intentionally a script-based project, not a packaged Python library
 
 ## Install
 
-Create a virtual environment if you want one, then install the runtime dependencies:
+### Option A: pip install (recommended)
+
+Install as an editable package into a virtual environment. This creates CLI commands (`transcript-cli`, `autopublish`, etc.) that work from any directory:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
+
+To make the commands available system-wide without activating the venv, symlink them into a directory on your `PATH`:
+
+```bash
+ln -sf "$(pwd)/.venv/bin/transcript-cli" /opt/homebrew/bin/transcript-cli
+ln -sf "$(pwd)/.venv/bin/autopublish" /opt/homebrew/bin/autopublish
+ln -sf "$(pwd)/.venv/bin/podcast-transcript-cli" /opt/homebrew/bin/podcast-transcript-cli
+ln -sf "$(pwd)/.venv/bin/podcast-autopublish" /opt/homebrew/bin/podcast-autopublish
+```
+
+### Option B: requirements.txt only
+
+If you prefer running the scripts directly with `python3 script.py`, just install the dependencies:
 
 ```bash
 python3 -m pip install -r requirements.txt
 ```
 
-That installs `yt-dlp` (invoked via the `yt-dlp` executable on `PATH`) and `openai-whisper` (used for podcast audio transcription).
+This installs `yt-dlp` (invoked via the `yt-dlp` executable on `PATH`) and `openai-whisper` (used for podcast audio transcription).
+
+### yt-dlp impersonation support
+
+To avoid YouTube 429 rate limits, install `curl_cffi` into the Python environment that yt-dlp uses. If yt-dlp was installed via Homebrew, that's its own isolated environment:
+
+```bash
+$(dirname $(realpath $(which yt-dlp)))/../libexec/bin/python -m pip install 'curl_cffi>=0.10,<0.15'
+```
+
+Verify with `yt-dlp --list-impersonate-targets` - targets should show as available, not `(unavailable)`.
+
+### Installed CLI commands
+
+When installed as a package, these commands are available:
+
+| Command | Description |
+|---------|-------------|
+| `transcript-cli` | Fetch and clean YouTube subtitles |
+| `podcast-transcript-cli` | Fetch and transcribe podcast episodes |
+| `autopublish` | YouTube blog generation and publishing pipeline |
+| `podcast-autopublish` | Podcast blog generation and publishing pipeline |
 
 ## Configuration
 
@@ -55,9 +97,9 @@ cp channels.toml.example channels.toml
 You can run independent pipelines from the same codebase by using separate config files with different `state_dir` values:
 
 ```bash
-python3 autopublish.py --config ~/astronomy/channels.toml
-python3 autopublish.py --config ~/retro-gaming/channels.toml
-python3 podcast_autopublish.py --config ~/trips/channels.toml
+autopublish --config ~/astronomy/channels.toml
+autopublish --config ~/retro-gaming/channels.toml
+podcast-autopublish --config ~/trips/channels.toml
 ```
 
 Each config can point to a different blog repo, LLM wiki, and set of channels/podcasts. Set a unique `state_dir` per config so processed items are tracked independently.
@@ -76,32 +118,41 @@ Get API credentials at [podcastindex.org/developers](https://podcastindex.org/de
 Optional YouTube variables:
 
 - `YOUTUBE_TRANSCRIPT_IMPERSONATE=chrome` - pass `--impersonate chrome` to `yt-dlp` (helps with rate limits)
+- `YOUTUBE_TRANSCRIPT_COOKIES_BROWSER=chrome` - pass `--cookies-from-browser chrome` to `yt-dlp` (authenticates with your browser session to avoid 429 rate limits)
 - `YOUTUBE_TRANSCRIPT_CACHE_DIR=/path/to/cache` - reuse previously downloaded subtitle files
 
 ## Transcript CLI
 
+If installed as a package, use `transcript-cli`. Otherwise use `python3 transcript_cli.py`.
+
 Fetch subtitles from a YouTube URL and print the cleaned transcript:
 
 ```bash
-python3 transcript_cli.py "https://www.youtube.com/watch?v=VIDEO_ID" --stdout
+transcript-cli "https://www.youtube.com/watch?v=VIDEO_ID" --stdout
+```
+
+With browser cookie authentication (recommended to avoid 429 rate limits):
+
+```bash
+transcript-cli "https://www.youtube.com/watch?v=VIDEO_ID" --stdout --cookies-from-browser chrome
 ```
 
 Clean an existing local `.vtt` file:
 
 ```bash
-python3 transcript_cli.py "downloaded.en.vtt"
+transcript-cli "downloaded.en.vtt"
 ```
 
 Opt into non-English subtitle fallback for URL inputs:
 
 ```bash
-python3 transcript_cli.py "https://www.youtube.com/watch?v=VIDEO_ID" --stdout --allow-non-english
+transcript-cli "https://www.youtube.com/watch?v=VIDEO_ID" --stdout --allow-non-english
 ```
 
 Emit structured JSON for tooling or Claude command workflows:
 
 ```bash
-python3 transcript_cli.py "https://www.youtube.com/watch?v=VIDEO_ID" --json --allow-non-english
+transcript-cli "https://www.youtube.com/watch?v=VIDEO_ID" --json --allow-non-english
 ```
 
 ### Language handling
@@ -117,7 +168,8 @@ python3 transcript_cli.py "https://www.youtube.com/watch?v=VIDEO_ID" --json --al
 ### 429 handling, impersonation, and subtitle cache
 
 - Subtitle fetches use **bounded retry with backoff** when `yt-dlp` fails with HTTP 429-style rate limit signals and no usable new `.vtt` files were written yet.
-- Set **`YOUTUBE_TRANSCRIPT_IMPERSONATE=chrome`** to pass `--impersonate chrome` to `yt-dlp` (TLS fingerprinting; helps some blocked or flaky networks). Install extra support with `python3 -m pip install 'yt-dlp[curl-cffi]'` so impersonation can use curl-cffi.
+- Set **`YOUTUBE_TRANSCRIPT_IMPERSONATE=chrome`** to pass `--impersonate chrome` to `yt-dlp` (TLS fingerprinting; helps some blocked or flaky networks). Requires `curl_cffi` installed in yt-dlp's Python environment (see [Install](#yt-dlp-impersonation-support)).
+- Pass **`--cookies-from-browser chrome`** (or set **`YOUTUBE_TRANSCRIPT_COOKIES_BROWSER=chrome`**) to authenticate yt-dlp with your browser session. This is the most reliable way to avoid YouTube 429 rate limits.
 - Set **`YOUTUBE_TRANSCRIPT_CACHE_DIR=/path/to/cache`** to reuse previously downloaded subtitle files. Cache files are named by video ID and mode (for example `VIDEOID-en.vtt` for English-only runs, or `VIDEOID-allow-non-english-LANG-0|1.vtt` when `--allow-non-english` is used). On a cache hit, the fetcher returns the same `language` and `used_fallback` metadata as a live download.
 
 ## Claude Code commands
@@ -140,11 +192,23 @@ Fetches the transcript, reads `pedagogic.md` for style, derives an outline, and 
 
 Fetches and transcribes the podcast episode using Whisper, then generates a blog post. Accepts PodcastIndex URLs like `https://podcastindex.org/podcast/123456?episode=789`.
 
-Both commands can also be run non-interactively:
+Both commands can also be run non-interactively from the terminal. You must run from the `~/youtube` directory (or use `-d`) since the commands are defined in `.claude/commands/`:
 
 ```bash
-claude -p "/youtube-blog https://www.youtube.com/watch?v=VIDEO_ID"
-claude -p "/podcast-blog https://podcastindex.org/podcast/123456"
+cd ~/youtube && claude -p "/youtube-blog https://www.youtube.com/watch?v=VIDEO_ID"
+cd ~/youtube && claude -p "/podcast-blog https://podcastindex.org/podcast/123456"
+```
+
+With browser cookie authentication:
+
+```bash
+cd ~/youtube && YOUTUBE_TRANSCRIPT_COOKIES_BROWSER=chrome claude -p "/youtube-blog https://www.youtube.com/watch?v=VIDEO_ID"
+```
+
+Or point at the project from any directory using `-d`:
+
+```bash
+YOUTUBE_TRANSCRIPT_COOKIES_BROWSER=chrome claude -p "/youtube-blog https://www.youtube.com/watch?v=VIDEO_ID" -d ~/youtube
 ```
 
 ## Autopublish
@@ -154,21 +218,22 @@ Automated scripts that poll RSS feeds, generate blog posts, and publish them to 
 ### YouTube autopublish
 
 ```bash
-python3 autopublish.py              # poll RSS feeds, generate and publish new posts
-python3 autopublish.py --dry-run    # show what would be processed
-python3 autopublish.py --url "https://www.youtube.com/watch?v=VIDEO_ID"  # process single video
-python3 autopublish.py --url "..." --force  # reprocess even if already seen
+autopublish              # poll RSS feeds, generate and publish new posts
+autopublish --dry-run    # show what would be processed
+autopublish --url "https://www.youtube.com/watch?v=VIDEO_ID"  # process single video
+autopublish --url "..." --force  # reprocess even if already seen
+autopublish --url "..." --cookies-from-browser chrome  # with browser cookie auth
 ```
 
 ### Podcast autopublish
 
 ```bash
-python3 podcast_autopublish.py                # poll PodcastIndex, transcribe, generate, publish
-python3 podcast_autopublish.py --dry-run      # show what would be processed
-python3 podcast_autopublish.py --url "https://podcastindex.org/podcast/123456?episode=789"
-python3 podcast_autopublish.py --url "..." --force          # reprocess
-python3 podcast_autopublish.py --url "..." --generate-only  # generate markdown without publishing
-python3 podcast_autopublish.py --whisper-model base          # use smaller Whisper model
+podcast-autopublish                # poll PodcastIndex, transcribe, generate, publish
+podcast-autopublish --dry-run      # show what would be processed
+podcast-autopublish --url "https://podcastindex.org/podcast/123456?episode=789"
+podcast-autopublish --url "..." --force          # reprocess
+podcast-autopublish --url "..." --generate-only  # generate markdown without publishing
+podcast-autopublish --whisper-model base          # use smaller Whisper model
 ```
 
 Both scripts:

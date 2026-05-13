@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -61,10 +62,10 @@ def generate_blog_post(video_url: str, video_id: str, youtube_repo: Path) -> Pat
             ],
             capture_output=True,
             text=True,
-            timeout=600,
+            timeout=900,
         )
     except subprocess.TimeoutExpired:
-        logger.error("[%s] Blog generation timed out after 600s", video_id)
+        logger.error("[%s] Blog generation timed out after 900s", video_id)
         return None
     logger.debug("[%s] claude stdout:\n%s", video_id, result.stdout)
     logger.debug("[%s] claude stderr:\n%s", video_id, result.stderr)
@@ -449,6 +450,12 @@ def main() -> int:
         help="Show what would be processed without making changes (not compatible with --url)",
     )
     parser.add_argument(
+        "--cookies-from-browser",
+        metavar="BROWSER",
+        default=None,
+        help="Use cookies from BROWSER (e.g. chrome) to authenticate yt-dlp requests and avoid 429 rate limits.",
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable debug logging (shows claude output, detailed diagnostics)",
@@ -460,6 +467,8 @@ def main() -> int:
         help="Path to channels.toml config file",
     )
     args = parser.parse_args()
+    if args.cookies_from_browser:
+        os.environ["YOUTUBE_TRANSCRIPT_COOKIES_BROWSER"] = args.cookies_from_browser
     config = load_config(args.config)
     setup_logging("autopublish", verbose=args.verbose,
                   log_file=config["state_dir"] / "automation.log")

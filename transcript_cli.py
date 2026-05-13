@@ -25,6 +25,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Allow non-English subtitle tracks when English subtitles are unavailable.",
     )
     parser.add_argument(
+        "--cookies-from-browser",
+        metavar="BROWSER",
+        default=None,
+        help="Use cookies from BROWSER (e.g. chrome, firefox) to authenticate with YouTube and avoid rate limits.",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON with cleaned transcript text, language, and used_fallback.",
@@ -43,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
                     input_value,
                     tmp_path,
                     allow_non_english=args.allow_non_english,
+                    cookies_from_browser=args.cookies_from_browser,
                 )
             except RuntimeError as exc:
                 print(f"Error: {exc}", file=sys.stderr)
