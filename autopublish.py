@@ -62,6 +62,18 @@ def _find_blog_output(youtube_repo: Path, video_id: str) -> Path | None:
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
+def _cleanup_orphaned_video(youtube_repo: Path, video_id: str) -> None:
+    """Best-effort cleanup of video files left by a failed /youtube-eyes run."""
+    logger = logging.getLogger(__name__)
+    for frames_json in youtube_repo.glob(f"youtube-blog-*-{video_id}*/frames.json"):
+        logger.info("[%s] Cleaning up orphaned video from %s", video_id, frames_json)
+        try:
+            from video_frames import cleanup_video
+            cleanup_video(frames_json)
+        except Exception as exc:
+            logger.warning("[%s] Video cleanup failed: %s", video_id, exc)
+
+
 def generate_blog_post(
     video_url: str,
     video_id: str,
@@ -71,7 +83,7 @@ def generate_blog_post(
     logger = logging.getLogger(__name__)
     if use_eyes:
         command_name = "/youtube-eyes"
-        allowed_tools = "Read,Write,Edit,Glob,Grep,Bash(python3 transcript_cli.py *),Bash(video-frames *),Bash(frame-at *),Bash(rm *),Bash(date +*)"
+        allowed_tools = "Read,Write,Edit,Glob,Grep,Bash(python3 transcript_cli.py *),Bash(video-frames *),Bash(frame-at *),Bash(date +*)"
         timeout = 1200
     else:
         command_name = "/youtube-blog"
@@ -92,15 +104,21 @@ def generate_blog_post(
         )
     except subprocess.TimeoutExpired:
         logger.error("[%s] Blog generation timed out after %ds", video_id, timeout)
+        if use_eyes:
+            _cleanup_orphaned_video(youtube_repo, video_id)
         return None
     logger.debug("[%s] claude stdout:\n%s", video_id, result.stdout)
     logger.debug("[%s] claude stderr:\n%s", video_id, result.stderr)
     if result.returncode != 0:
         logger.error("[%s] Blog generation failed (exit %d): %s", video_id, result.returncode, result.stderr)
+        if use_eyes:
+            _cleanup_orphaned_video(youtube_repo, video_id)
         return None
     blog_path = _find_blog_output(youtube_repo, video_id)
     if blog_path is None:
         logger.error("[%s] Blog generation produced no file matching video ID", video_id)
+        if use_eyes:
+            _cleanup_orphaned_video(youtube_repo, video_id)
         return None
     return blog_path
 

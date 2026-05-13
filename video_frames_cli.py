@@ -4,14 +4,14 @@ import logging
 import sys
 from pathlib import Path
 
-from video_frames import extract_frames
+from video_frames import cleanup_video, extract_frames
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Extract key frames from a YouTube video using scene detection, YOLOv8, and OCR.",
     )
-    parser.add_argument("url", help="YouTube video URL")
+    parser.add_argument("url", nargs="?", default=None, help="YouTube video URL")
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -46,6 +46,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Print metadata JSON to stdout.",
     )
     parser.add_argument(
+        "--cleanup-video",
+        type=Path,
+        metavar="FRAMES_JSON",
+        default=None,
+        help="Delete the video file referenced in the given frames.json, then exit.",
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable debug logging.",
@@ -54,6 +61,13 @@ def main(argv: list[str] | None = None) -> int:
 
     level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
+
+    if args.cleanup_video:
+        ok = cleanup_video(args.cleanup_video)
+        return 0 if ok else 1
+
+    if not args.url:
+        parser.error("url is required (unless using --cleanup-video)")
 
     try:
         meta_path = extract_frames(

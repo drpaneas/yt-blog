@@ -2,7 +2,7 @@
 description: Write a pedagogic developer blog post from a YouTube URL, with extracted video frames (code, diagrams, slides)
 argument-hint: <youtube-url>
 disable-model-invocation: true
-allowed-tools: Read Write Edit Glob Grep Bash(python3 transcript_cli.py *) Bash(video-frames *) Bash(frame-at *) Bash(date +%Y%m%d-%H%M%S) Bash(rm *)
+allowed-tools: Read Write Edit Glob Grep Bash(python3 transcript_cli.py *) Bash(video-frames *) Bash(frame-at *) Bash(date +%Y%m%d-%H%M%S)
 ---
 
 Turn the YouTube URL in `$ARGUMENTS` into a polished pedagogic Markdown blog post enriched with visual content extracted from the video.
@@ -16,10 +16,10 @@ Follow this workflow exactly.
 - Ensure `$ARGUMENTS` looks like a valid YouTube URL.
 - Accept common YouTube URL forms such as `youtube.com/watch`, `youtu.be/...`, `m.youtube.com/...`, `youtube.com/shorts/...`, and `youtube.com/live/...`.
 - If it is not a usable YouTube URL, stop and tell the user to run `/youtube-eyes <youtube-url>` with a valid URL.
-- Locate `transcript_cli.py`, `video_frames_cli.py`, and `pedagogic.md` in the current project.
+- Locate `transcript_cli.py` and `pedagogic.md` in the current project.
 - Prefer the workspace-root copies if multiple matches exist.
 - If `transcript_cli.py` or `pedagogic.md` is missing, stop and report which file is missing.
-- If `video_frames_cli.py` is missing, warn but continue without frame extraction (degrade to transcript-only mode).
+- Verify that `video-frames` and `frame-at` commands are available on PATH (try `video-frames --help`). If not available, warn but continue without frame extraction (degrade to transcript-only mode).
 
 ## 2. Extract the source text
 
@@ -123,11 +123,11 @@ When frames were successfully extracted (step 3), use them to enrich the article
 - **Diagram frames** (`type: "diagram"`): read the frame image file yourself using the Read tool to understand what it shows. Prefer reconstructing the content in text form: use ASCII art for flowcharts, box diagrams, or arrow-based visuals; use Markdown tables for tabular content; use bullet lists for hierarchical structures. Only embed the screenshot image if the visual is too complex to reproduce faithfully in text (e.g. photographs, detailed technical schematics, graphs with many data points).
 - **Slide frames** (`type: "slide"`): read the frame image file yourself using the Read tool if `ocr_text` is missing or garbled. Reconstruct the slide content as Markdown: use headings for titles, bullet lists for points, tables for comparisons. Embed the screenshot image only if the slide relies on visual layout, color coding, or spatial arrangement that text cannot capture. Skip title slides or slides that just repeat section headings already in the article.
 - **Placement**: embed each visual near the paragraph that discusses the same topic. Do not cluster all images at the end or dump them in sequence.
-- **On-demand frame extraction**: as you read the transcript and write the article, watch for moments where the speaker narrates something visual that is NOT covered by any existing frame. Cues include: "let me type this," "if I run this," "you can see here," "look at this output," or describing code/results that don't match any nearby frame's OCR text or timestamp. When you identify such a gap, use the `video_path` from `frames.json` and the `frame-at` tool to grab a frame at the estimated timestamp: `frame-at <video_path> <timestamp_sec> <output-dir>/frame-<timestamp>s.png`. Then read the resulting image to transcribe the code or content. This is essential for live-typed code and REPL demos that scene detection misses.
+- **On-demand frame extraction** (max 5 additional frames): as you read the transcript and write the article, watch for moments where the speaker narrates something visual that is NOT covered by any existing frame. Cues include: "let me type this," "if I run this," "you can see here," "look at this output," or describing code/results that don't match any nearby frame's OCR text or timestamp. When you identify such a gap, use the `video_path` from `frames.json` and the `frame-at` tool to grab a frame at the estimated timestamp: `frame-at <video_path> <timestamp_sec> <output-dir>/frame-<timestamp>s.png`. Then read the resulting image to transcribe the code or content. This is essential for live-typed code and REPL demos that scene detection misses. Limit on-demand extractions to at most 5 per article - prioritize the most important gaps where visual content is critical to the explanation.
 - **Selectivity**: do not embed every frame. Only include frames that genuinely help the reader understand the content. Skip redundant frames, transitional slides, and frames whose content is already fully covered by the article text.
 - **Cleanup**: after writing the article:
   1. Delete any frame PNG files from the output directory that are not referenced in the final article.
-  2. Delete the video file: run `rm <video_path>` using the path from `frames.json`. This file can be 500MB+ and must not be left behind.
+  2. Delete the video file by running `video-frames --cleanup-video <output-dir>/frames.json`. This safely removes the video (500MB+) and its temp directory.
   3. Delete the `frames.json` metadata file from the output directory (it was only needed during writing).
 - Image references use simple relative paths since the article is `index.md` inside the page bundle directory.
 

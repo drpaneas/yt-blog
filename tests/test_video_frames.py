@@ -206,5 +206,94 @@ class TestFindExistingBlog(unittest.TestCase):
             self.assertIsNone(result)
 
 
+class TestExtractFrameAt(unittest.TestCase):
+    def test_negative_timestamp_raises(self):
+        from frame_at import extract_frame_at
+        with self.assertRaises(ValueError):
+            extract_frame_at(Path("/nonexistent.mp4"), -1.0, Path("/tmp/out.png"))
+
+    def test_missing_video_raises(self):
+        from frame_at import extract_frame_at
+        with self.assertRaises(RuntimeError):
+            extract_frame_at(Path("/nonexistent_video.mp4"), 5.0, Path("/tmp/out.png"))
+
+    def test_bad_extension_becomes_png(self):
+        from frame_at import extract_frame_at
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "frame.xyz"
+            with self.assertRaises(RuntimeError):
+                extract_frame_at(Path("/nonexistent_video.mp4"), 0.0, out)
+
+
+class TestCleanupVideo(unittest.TestCase):
+    def test_cleanup_removes_temp_dir(self):
+        from video_frames import cleanup_video
+        with tempfile.TemporaryDirectory() as tmp:
+            video_dir = Path(tmp) / "video-frames-TEST123-abc"
+            video_dir.mkdir()
+            video_file = video_dir / "TEST123.mp4"
+            video_file.write_bytes(b"fake video")
+
+            meta_dir = Path(tmp) / "output"
+            meta_dir.mkdir()
+            meta_file = meta_dir / "frames.json"
+            import json
+            meta_file.write_text(json.dumps({
+                "video_path": str(video_file),
+                "frames": [],
+            }))
+
+            self.assertTrue(video_dir.exists())
+            cleanup_video(meta_file)
+            self.assertFalse(video_dir.exists())
+
+    def test_cleanup_handles_missing_video(self):
+        from video_frames import cleanup_video
+        with tempfile.TemporaryDirectory() as tmp:
+            meta_file = Path(tmp) / "frames.json"
+            import json
+            meta_file.write_text(json.dumps({
+                "video_path": "/nonexistent/video.mp4",
+                "frames": [],
+            }))
+            result = cleanup_video(meta_file)
+            self.assertTrue(result)
+
+    def test_cleanup_handles_no_video_path(self):
+        from video_frames import cleanup_video
+        with tempfile.TemporaryDirectory() as tmp:
+            meta_file = Path(tmp) / "frames.json"
+            import json
+            meta_file.write_text(json.dumps({"frames": []}))
+            result = cleanup_video(meta_file)
+            self.assertTrue(result)
+
+    def test_cleanup_handles_missing_metadata(self):
+        from video_frames import cleanup_video
+        result = cleanup_video(Path("/nonexistent/frames.json"))
+        self.assertFalse(result)
+
+
+class TestWriteMetadataVideoPath(unittest.TestCase):
+    def test_includes_video_path(self):
+        from video_frames import write_metadata
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            video = Path("/tmp/video-frames-test/video.mp4")
+            meta = write_metadata(out, "TEST123", 120.0, [], video_path=video)
+            data = json.loads(meta.read_text())
+            self.assertEqual(data["video_path"], str(video))
+
+    def test_omits_video_path_when_none(self):
+        from video_frames import write_metadata
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            meta = write_metadata(out, "TEST123", 120.0, [])
+            data = json.loads(meta.read_text())
+            self.assertNotIn("video_path", data)
+
+
 if __name__ == "__main__":
     unittest.main()

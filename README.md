@@ -43,6 +43,7 @@ ln -sf "$(pwd)/.venv/bin/autopublish" /opt/homebrew/bin/autopublish
 ln -sf "$(pwd)/.venv/bin/podcast-transcript-cli" /opt/homebrew/bin/podcast-transcript-cli
 ln -sf "$(pwd)/.venv/bin/podcast-autopublish" /opt/homebrew/bin/podcast-autopublish
 ln -sf "$(pwd)/.venv/bin/video-frames" /opt/homebrew/bin/video-frames
+ln -sf "$(pwd)/.venv/bin/frame-at" /opt/homebrew/bin/frame-at
 ```
 
 ### Option B: requirements.txt only
@@ -74,6 +75,7 @@ When installed as a package, these commands are available:
 | `transcript-cli` | Fetch and clean YouTube subtitles |
 | `podcast-transcript-cli` | Fetch and transcribe podcast episodes |
 | `video-frames` | Extract key frames from YouTube videos (YOLOv8 + OCR) |
+| `frame-at` | Extract a single frame at a specific timestamp from a video file |
 | `autopublish` | YouTube blog generation and publishing pipeline |
 | `podcast-autopublish` | Podcast blog generation and publishing pipeline |
 

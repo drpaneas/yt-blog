@@ -345,6 +345,37 @@ def run_ocr(
 # Stage 5: Metadata + cleanup
 # ---------------------------------------------------------------------------
 
+def cleanup_video(metadata_path: Path) -> bool:
+    """Delete the video file and its temp directory referenced in frames.json."""
+    import shutil
+    try:
+        data = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.warning("Could not read metadata for cleanup: %s", metadata_path)
+        return False
+
+    video_path_str = data.get("video_path")
+    if not video_path_str:
+        logger.info("No video_path in metadata, nothing to clean up")
+        return True
+
+    video_path = Path(video_path_str)
+    video_dir = video_path.parent
+
+    if video_dir.name.startswith("video-frames-") and video_dir.exists():
+        logger.info("Cleaning up video temp dir: %s", video_dir)
+        shutil.rmtree(video_dir, ignore_errors=True)
+        return True
+
+    if video_path.exists():
+        logger.info("Cleaning up video file: %s", video_path)
+        video_path.unlink(missing_ok=True)
+        return True
+
+    logger.info("Video file already cleaned up: %s", video_path)
+    return True
+
+
 def write_metadata(
     output_dir: Path,
     video_id: str | None,
@@ -386,34 +417,37 @@ def extract_frames(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     video_tmp = Path(tempfile.mkdtemp(prefix=f"video-frames-{video_id or 'unknown'}-"))
+    pipeline_ok = False
     try:
         video_path = download_video(url, video_tmp, cookies_from_browser)
-    except Exception:
-        import shutil
-        shutil.rmtree(video_tmp, ignore_errors=True)
-        raise
+        duration = get_video_duration(video_path)
+        frames = detect_scenes(video_path, output_dir)
+        frames = deduplicate_frames(frames)
 
-    duration = get_video_duration(video_path)
-    frames = detect_scenes(video_path, output_dir)
-    frames = deduplicate_frames(frames)
+        if not keep_all:
+            tagged_frames = filter_persons(frames)
+        else:
+            tagged_frames = [(p, ts, "fullscreen") for p, ts in frames]
 
-    if not keep_all:
-        tagged_frames = filter_persons(frames)
-    else:
-        tagged_frames = [(p, ts, "fullscreen") for p, ts in frames]
+        if len(tagged_frames) > max_frames:
+            for path, _, _ in tagged_frames[max_frames:]:
+                path.unlink(missing_ok=True)
+            tagged_frames = tagged_frames[:max_frames]
+            logger.info("Capped to %d frames", max_frames)
 
-    if len(tagged_frames) > max_frames:
-        for path, _, _ in tagged_frames[max_frames:]:
-            path.unlink(missing_ok=True)
-        tagged_frames = tagged_frames[:max_frames]
-        logger.info("Capped to %d frames", max_frames)
+        if skip_ocr:
+            frame_data = [
+                {"file": p.name, "timestamp_sec": round(ts, 1), "type": "unknown", "ocr_text": None}
+                for p, ts, _ in tagged_frames
+            ]
+        else:
+            frame_data = run_ocr(tagged_frames)
 
-    if skip_ocr:
-        frame_data = [
-            {"file": p.name, "timestamp_sec": round(ts, 1), "type": "unknown", "ocr_text": None}
-            for p, ts, _ in tagged_frames
-        ]
-    else:
-        frame_data = run_ocr(tagged_frames)
-
-    return write_metadata(output_dir, video_id, duration, frame_data, video_path=video_path)
+        result = write_metadata(output_dir, video_id, duration, frame_data, video_path=video_path)
+        pipeline_ok = True
+        return result
+    finally:
+        if not pipeline_ok:
+            import shutil
+            logger.warning("Pipeline failed, cleaning up video temp dir: %s", video_tmp)
+            shutil.rmtree(video_tmp, ignore_errors=True)
