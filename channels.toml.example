@@ -11,12 +11,12 @@ max_parallel = 5
 # state_dir = "~/.youtube-blog-automation/my-project"
 
 [paths]
-# Local clone of your Hugo blog repo
-blog_repo = "~/myblog"
-# Subdirectory within blog_repo where posts go
-blog_content_dir = "content/post"
-# Branch to verify and push to
-blog_branch = "main"
+# Local clone of your Hugo blog repo (optional - omit to skip blog publishing)
+# blog_repo = "~/myblog"
+# Subdirectory within blog_repo where posts go (only used if blog_repo is set)
+# blog_content_dir = "content/post"
+# Branch to verify and push to (only used if blog_repo is set)
+# blog_branch = "main"
 # Path to this youtube repo (for claude -d flag)
 youtube_repo_dir = "~/youtube"
 # Optional: path to LLM wiki project. Omit to skip wiki integration.

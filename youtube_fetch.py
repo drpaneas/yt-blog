@@ -45,6 +45,13 @@ def _impersonate_cli_args() -> list[str]:
     return ["--impersonate", value]
 
 
+def _cookies_cli_args(cookies_from_browser: str | None = None) -> list[str]:
+    value = cookies_from_browser or os.environ.get("YOUTUBE_TRANSCRIPT_COOKIES_BROWSER", "").strip()
+    if not value:
+        return []
+    return ["--cookies-from-browser", value]
+
+
 def _cache_root_from_env() -> Path | None:
     raw = os.environ.get("YOUTUBE_TRANSCRIPT_CACHE_DIR", "").strip()
     if not raw:
@@ -151,6 +158,7 @@ def _fetch_auto_sub_attempt(
     target_dir: Path,
     url: str,
     sub_langs: str,
+    cookies_from_browser: str | None = None,
 ) -> tuple[list[Path], subprocess.CalledProcessError | None]:
     """Run yt-dlp auto-subtitle fetch with an explicit ``--sub-langs`` value.
 
@@ -166,6 +174,7 @@ def _fetch_auto_sub_attempt(
     command = [
         "yt-dlp",
         *_impersonate_cli_args(),
+        *_cookies_cli_args(cookies_from_browser),
         "--write-auto-subs",
         "--skip-download",
         "--sub-langs",
@@ -247,6 +256,7 @@ def fetch_auto_sub_vtt(
     url: str,
     output_dir: Path | str,
     allow_non_english: bool = False,
+    cookies_from_browser: str | None = None,
 ) -> SubtitleFetchResult:
     target_dir = Path(output_dir)
     cache_root = _cache_root_from_env()
@@ -260,6 +270,7 @@ def fetch_auto_sub_vtt(
         target_dir,
         url,
         _SUB_LANGS_ENGLISH_ONLY,
+        cookies_from_browser=cookies_from_browser,
     )
 
     english_files = [path for path in fresh_files if _is_english_subtitle(path)]
@@ -302,6 +313,7 @@ def fetch_auto_sub_vtt(
         target_dir,
         url,
         _SUB_LANGS_BROADER,
+        cookies_from_browser=cookies_from_browser,
     )
 
     english_files_broad = [path for path in fresh_files_broad if _is_english_subtitle(path)]

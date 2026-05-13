@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -33,11 +34,13 @@ def load_config(config_path: Path) -> dict:
     hugo = raw.get("hugo", {})
     llmwiki_raw = paths.get("llmwiki_dir")
     state_dir_raw = raw.get("state_dir")
+    blog_repo_raw = paths.get("blog_repo")
+    blog_repo = Path(blog_repo_raw).expanduser().resolve() if blog_repo_raw else None
     return {
         "state_dir": Path(state_dir_raw).expanduser().resolve() if state_dir_raw else DEFAULT_STATE_DIR,
-        "blog_repo": Path(paths["blog_repo"]).expanduser().resolve(),
-        "blog_content_dir": paths.get("blog_content_dir", "content/post"),
-        "blog_branch": paths.get("blog_branch", "master"),
+        "blog_repo": blog_repo,
+        "blog_content_dir": paths.get("blog_content_dir", "content/post") if blog_repo else None,
+        "blog_branch": paths.get("blog_branch", "master") if blog_repo else None,
         "youtube_repo_dir": Path(paths["youtube_repo_dir"]).expanduser().resolve(),
         "llmwiki_dir": Path(llmwiki_raw).expanduser().resolve() if llmwiki_raw else None,
         "hugo_categories": hugo.get("categories", ["youtube"]),
@@ -47,33 +50,77 @@ def load_config(config_path: Path) -> dict:
     }
 
 
-def generate_blog_post(video_url: str, video_id: str, youtube_repo: Path) -> Path | None:
+def _find_blog_output(youtube_repo: Path, video_id: str) -> Path | None:
+    """Find a generated blog post by video ID, checking both flat files and page bundles."""
+    flat = list(youtube_repo.glob(f"youtube-blog-*-{video_id}.md"))
+    bundles = [
+        p for p in youtube_repo.glob(f"youtube-blog-*-{video_id}/index.md")
+    ]
+    candidates = flat + bundles
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+
+
+def _cleanup_orphaned_video(youtube_repo: Path, video_id: str) -> None:
+    """Best-effort cleanup of video files left by a failed /youtube-eyes run."""
     logger = logging.getLogger(__name__)
+    for frames_json in youtube_repo.glob(f"youtube-blog-*-{video_id}*/frames.json"):
+        logger.info("[%s] Cleaning up orphaned video from %s", video_id, frames_json)
+        try:
+            from video_frames import cleanup_video
+            cleanup_video(frames_json)
+        except Exception as exc:
+            logger.warning("[%s] Video cleanup failed: %s", video_id, exc)
+
+
+def generate_blog_post(
+    video_url: str,
+    video_id: str,
+    youtube_repo: Path,
+    use_eyes: bool = False,
+) -> Path | None:
+    logger = logging.getLogger(__name__)
+    if use_eyes:
+        command_name = "/youtube-eyes"
+        allowed_tools = "Read,Write,Edit,Glob,Grep,Bash(python3 transcript_cli.py *),Bash(video-frames *),Bash(frame-at *),Bash(date +*)"
+        timeout = 1200
+    else:
+        command_name = "/youtube-blog"
+        allowed_tools = "Read,Write,Edit,Glob,Grep,Bash(python3 transcript_cli.py *),Bash(date +*)"
+        timeout = 900
+
     try:
         result = subprocess.run(
             [
-                "claude", "-p", f"/youtube-blog {video_url}",
+                "claude", "-p", f"{command_name} {video_url}",
                 "-d", str(youtube_repo),
                 "--dangerously-skip-permissions",
-                "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash(python3 transcript_cli.py *),Bash(date +*)",
+                "--allowedTools", allowed_tools,
             ],
             capture_output=True,
             text=True,
-            timeout=600,
+            timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        logger.error("[%s] Blog generation timed out after 600s", video_id)
+        logger.error("[%s] Blog generation timed out after %ds", video_id, timeout)
+        if use_eyes:
+            _cleanup_orphaned_video(youtube_repo, video_id)
         return None
     logger.debug("[%s] claude stdout:\n%s", video_id, result.stdout)
     logger.debug("[%s] claude stderr:\n%s", video_id, result.stderr)
     if result.returncode != 0:
         logger.error("[%s] Blog generation failed (exit %d): %s", video_id, result.returncode, result.stderr)
+        if use_eyes:
+            _cleanup_orphaned_video(youtube_repo, video_id)
         return None
-    matches = list(youtube_repo.glob(f"youtube-blog-*-{video_id}.md"))
-    if not matches:
+    blog_path = _find_blog_output(youtube_repo, video_id)
+    if blog_path is None:
         logger.error("[%s] Blog generation produced no file matching video ID", video_id)
+        if use_eyes:
+            _cleanup_orphaned_video(youtube_repo, video_id)
         return None
-    return max(matches, key=lambda p: p.stat().st_mtime)
+    return blog_path
 
 
 def _detect_channel_name(video_url: str) -> str:
@@ -99,9 +146,11 @@ def _find_existing_blog(video_id: str, *search_dirs: Path) -> Path | None:
     for directory in search_dirs:
         if not directory.exists():
             continue
-        matches = list(directory.rglob(f"youtube-blog-*-{video_id}.md"))
-        if matches:
-            return max(matches, key=lambda p: p.stat().st_mtime)
+        flat = list(directory.rglob(f"youtube-blog-*-{video_id}.md"))
+        bundles = list(directory.rglob(f"youtube-blog-*-{video_id}/index.md"))
+        candidates = flat + bundles
+        if candidates:
+            return max(candidates, key=lambda p: p.stat().st_mtime)
     return None
 
 
@@ -118,7 +167,7 @@ def _extract_video_id(url: str) -> str | None:
     return None
 
 
-def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
+def run_single(config_path: Path, video_url: str, force: bool = False, use_eyes: bool = False) -> int:
     config = load_config(config_path)
     state = StateManager(config["state_dir"], prefix="youtube:")
     logger = logging.getLogger(__name__)
@@ -138,11 +187,12 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
         logger.info("[%s] Already processed, skipping. Use --force to reprocess.", vid)
         return 0
 
-    try:
-        verify_blog_repo(blog_repo, blog_branch)
-    except RuntimeError as exc:
-        logger.error("Blog repo check failed: %s", exc)
-        return 1
+    if blog_repo is not None:
+        try:
+            verify_blog_repo(blog_repo, blog_branch)
+        except RuntimeError as exc:
+            logger.error("Blog repo check failed: %s", exc)
+            return 1
 
     logger.info("[%s] Detecting channel name...", vid)
     channel_name = _detect_channel_name(video_url)
@@ -151,16 +201,34 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
 
     if force:
         logger.info("[%s] --force: removing existing files before regenerating", vid)
-        for d in [youtube_repo, blog_repo / blog_content_dir / channel_slug, blog_repo / blog_content_dir]:
-            for f in d.glob(f"youtube-blog-*-{vid}.md"):
-                logger.info("[%s] Deleting: %s", vid, f)
-                f.unlink()
+        for f in youtube_repo.glob(f"youtube-blog-*-{vid}.md"):
+            logger.info("[%s] Deleting: %s", vid, f)
+            f.unlink()
+        for d in youtube_repo.glob(f"youtube-blog-*-{vid}"):
+            if d.is_dir():
+                logger.info("[%s] Deleting bundle: %s", vid, d)
+                shutil.rmtree(d)
+        if blog_repo is not None:
+            for search_d in [blog_repo / blog_content_dir / channel_slug, blog_repo / blog_content_dir]:
+                for f in search_d.glob(f"youtube-blog-*-{vid}.md"):
+                    logger.info("[%s] Deleting: %s", vid, f)
+                    f.unlink()
+                for d in search_d.glob(f"youtube-blog-*-{vid}"):
+                    if d.is_dir():
+                        logger.info("[%s] Deleting bundle: %s", vid, d)
+                        shutil.rmtree(d)
         if llmwiki_dir is not None:
             for f in (llmwiki_dir / "raw").glob(f"youtube-blog-*-{vid}.md"):
                 logger.info("[%s] Deleting: %s", vid, f)
                 f.unlink()
+            for d in (llmwiki_dir / "raw").glob(f"youtube-blog-*-{vid}"):
+                if d.is_dir():
+                    logger.info("[%s] Deleting wiki bundle: %s", vid, d)
+                    shutil.rmtree(d)
 
-    search_dirs = [youtube_repo, blog_repo / blog_content_dir / channel_slug, blog_repo / blog_content_dir]
+    search_dirs = [youtube_repo]
+    if blog_repo is not None:
+        search_dirs.extend([blog_repo / blog_content_dir / channel_slug, blog_repo / blog_content_dir])
     if llmwiki_dir is not None:
         search_dirs.append(llmwiki_dir / "raw")
     blog_path = _find_existing_blog(vid, *search_dirs)
@@ -168,68 +236,104 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
         logger.info("[%s] Found existing blog file: %s, skipping generation", vid, blog_path.name)
     else:
         logger.info("[%s] Generating blog post for: %s", vid, video_url)
-        blog_path = generate_blog_post(video_url, vid, youtube_repo)
+        blog_path = generate_blog_post(video_url, vid, youtube_repo, use_eyes=use_eyes)
         if blog_path is None:
             logger.error("[%s] Blog generation failed", vid)
             return 1
 
-    dest = blog_repo / blog_content_dir / channel_slug / blog_path.name
-    blog_copied = False
-    if dest.exists():
-        logger.info("[%s] Already in blog repo, skipping copy", vid)
+    if blog_path.name == "index.md":
+        extracted_title = blog_path.parent.name
     else:
-        logger.info("[%s] Copying to blog repo: %s", vid, blog_path.name)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(blog_path, dest)
-        blog_copied = True
+        extracted_title = blog_path.stem
+    is_bundle = blog_path.name == "index.md"
+    blog_src_dir = blog_path.parent if is_bundle else None
+    blog_copy_name = blog_src_dir.name if is_bundle else blog_path.name
 
-    if not dest.read_text(encoding="utf-8").startswith("+++\n"):
-        logger.info("[%s] Linting markdown...", vid)
-        lint_markdown(dest)
-        logger.info("[%s] Generating AI tags...", vid)
-        ai_tags = generate_ai_tags(dest)
-        all_tags = list(config["hugo_tags"]) + [channel_slug] + ai_tags
-        seen = set()
-        unique_tags = []
-        for t in all_tags:
-            if t not in seen:
-                seen.add(t)
-                unique_tags.append(t)
-        logger.info("[%s] Adding Hugo front matter to %s", vid, dest.name)
-        extracted_title = add_hugo_front_matter(
-            dest,
-            categories=config["hugo_categories"],
-            tags=unique_tags,
-        )
-        blog_copied = True
+    if blog_repo is not None:
+        dest_parent = blog_repo / blog_content_dir / channel_slug
+        if is_bundle:
+            dest_dir = dest_parent / blog_copy_name
+            dest_md = dest_dir / "index.md"
+        else:
+            dest_dir = None
+            dest_md = dest_parent / blog_copy_name
+
+        blog_copied = False
+        if dest_md.exists():
+            logger.info("[%s] Already in blog repo, skipping copy", vid)
+        else:
+            logger.info("[%s] Copying to blog repo: %s", vid, blog_copy_name)
+            if is_bundle:
+                shutil.copytree(blog_src_dir, dest_dir)
+            else:
+                dest_parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(blog_path, dest_md)
+            blog_copied = True
+
+        if not dest_md.read_text(encoding="utf-8").startswith("+++\n"):
+            logger.info("[%s] Linting markdown...", vid)
+            lint_markdown(dest_md)
+            logger.info("[%s] Generating AI tags...", vid)
+            ai_tags = generate_ai_tags(dest_md)
+            all_tags = list(config["hugo_tags"]) + [channel_slug] + ai_tags
+            seen = set()
+            unique_tags = []
+            for t in all_tags:
+                if t not in seen:
+                    seen.add(t)
+                    unique_tags.append(t)
+            logger.info("[%s] Adding Hugo front matter to %s", vid, dest_md.name)
+            extracted_title = add_hugo_front_matter(
+                dest_md,
+                categories=config["hugo_categories"],
+                tags=unique_tags,
+            )
+            blog_copied = True
+        else:
+            logger.info("[%s] Hugo front matter already present", vid)
+            text = dest_md.read_text(encoding="utf-8")
+            for line in text.split("\n"):
+                m = re.match(r'^title\s*=\s*"(.+)"', line)
+                if m:
+                    extracted_title = m.group(1)
+                    break
+
+        if blog_copied:
+            commit_path = dest_dir if is_bundle else dest_md
+            logger.info("[%s] Committing to blog repo...", vid)
+            if not push_blog_repo(blog_repo, commit_path, [extracted_title]):
+                logger.error("[%s] Git commit failed - will not mark as seen", vid)
+                return 1
     else:
-        logger.info("[%s] Hugo front matter already present", vid)
-        text = dest.read_text(encoding="utf-8")
-        extracted_title = dest.stem
+        text = blog_path.read_text(encoding="utf-8")
         for line in text.split("\n"):
-            m = re.match(r'^title\s*=\s*"(.+)"', line)
+            m = re.match(r"^#\s+(.+)$", line)
             if m:
-                extracted_title = m.group(1)
+                extracted_title = m.group(1).strip()
                 break
 
-    if blog_copied:
-        logger.info("[%s] Committing to blog repo...", vid)
-        if not push_blog_repo(blog_repo, dest, [extracted_title]):
-            logger.error("[%s] Git commit failed - will not mark as seen", vid)
-            return 1
-
     if llmwiki_dir is not None:
-        wiki_dest = llmwiki_dir / "raw" / blog_path.name
-        if wiki_dest.exists():
-            logger.info("[%s] Already in LLM wiki raw, skipping copy", vid)
+        wiki_src = dest_md if blog_repo is not None else blog_path
+        if is_bundle:
+            wiki_dest = llmwiki_dir / "raw" / blog_copy_name
+            if wiki_dest.exists():
+                logger.info("[%s] Already in LLM wiki raw, skipping copy", vid)
+            else:
+                logger.info("[%s] Copying bundle to LLM wiki raw: %s", vid, blog_copy_name)
+                src_dir = dest_dir if blog_repo is not None else blog_src_dir
+                shutil.copytree(src_dir, wiki_dest)
         else:
-            logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_path.name)
-            wiki_dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(dest, wiki_dest)
+            wiki_dest = llmwiki_dir / "raw" / blog_copy_name
+            if wiki_dest.exists():
+                logger.info("[%s] Already in LLM wiki raw, skipping copy", vid)
+            else:
+                logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_copy_name)
+                wiki_dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(wiki_src, wiki_dest)
 
     state.mark_seen(vid, {
         "title": extracted_title,
-        "filename": blog_path.name,
+        "filename": blog_copy_name,
         "channel": channel_name,
         "published": True,
     })
@@ -237,7 +341,7 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
     return 0
 
 
-def run(config_path: Path, dry_run: bool = False) -> int:
+def run(config_path: Path, dry_run: bool = False, use_eyes: bool = False) -> int:
     config = load_config(config_path)
     state = StateManager(config["state_dir"], prefix="youtube:")
     logger = logging.getLogger(__name__)
@@ -248,7 +352,7 @@ def run(config_path: Path, dry_run: bool = False) -> int:
     llmwiki_dir = config["llmwiki_dir"]
     youtube_repo = config["youtube_repo_dir"]
 
-    if not dry_run:
+    if not dry_run and blog_repo is not None:
         try:
             verify_blog_repo(blog_repo, blog_branch)
         except RuntimeError as exc:
@@ -293,7 +397,9 @@ def run(config_path: Path, dry_run: bool = False) -> int:
     for video in approved:
         vid = video["video_id"]
         channel_slug = slugify(video["channel"])
-        search_dirs = [youtube_repo, blog_repo / blog_content_dir / channel_slug, blog_repo / blog_content_dir]
+        search_dirs = [youtube_repo]
+        if blog_repo is not None:
+            search_dirs.extend([blog_repo / blog_content_dir / channel_slug, blog_repo / blog_content_dir])
         if llmwiki_dir is not None:
             search_dirs.append(llmwiki_dir / "raw")
         existing = _find_existing_blog(vid, *search_dirs)
@@ -312,7 +418,7 @@ def run(config_path: Path, dry_run: bool = False) -> int:
         )
         with ThreadPoolExecutor(max_workers=max_parallel) as pool:
             futures = {
-                pool.submit(generate_blog_post, v["url"], v["video_id"], youtube_repo): v
+                pool.submit(generate_blog_post, v["url"], v["video_id"], youtube_repo, use_eyes=use_eyes): v
                 for v in videos_needing_generation
             }
             for future in as_completed(futures):
@@ -340,58 +446,84 @@ def run(config_path: Path, dry_run: bool = False) -> int:
         if blog_path is None:
             continue
 
-        dest = blog_repo / blog_content_dir / channel_slug / blog_path.name
-        blog_copied = False
-        if dest.exists():
-            logger.info("[%s] Already in blog repo, skipping copy", vid)
-        else:
-            logger.info("[%s] Copying to blog repo: %s/%s", vid, channel_slug, blog_path.name)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(blog_path, dest)
-            blog_copied = True
+        extracted_title = title
+        is_bundle = blog_path.name == "index.md"
+        blog_src_dir = blog_path.parent if is_bundle else None
+        blog_copy_name = blog_src_dir.name if is_bundle else blog_path.name
 
-        if not dest.read_text(encoding="utf-8").startswith("+++\n"):
-            logger.info("[%s] Linting markdown...", vid)
-            lint_markdown(dest)
-            logger.info("[%s] Generating AI tags...", vid)
-            ai_tags = generate_ai_tags(dest)
-            all_tags = list(config["hugo_tags"]) + [channel_slug] + ai_tags
-            seen = set()
-            unique_tags = []
-            for t in all_tags:
-                if t not in seen:
-                    seen.add(t)
-                    unique_tags.append(t)
-            logger.info("[%s] Adding Hugo front matter to %s", vid, dest.name)
-            extracted_title = add_hugo_front_matter(
-                dest,
-                categories=config["hugo_categories"],
-                tags=unique_tags,
-            )
-            blog_copied = True
-        else:
-            logger.info("[%s] Hugo front matter already present", vid)
-            extracted_title = title
+        if blog_repo is not None:
+            dest_parent = blog_repo / blog_content_dir / channel_slug
+            if is_bundle:
+                dest_dir = dest_parent / blog_copy_name
+                dest_md = dest_dir / "index.md"
+            else:
+                dest_dir = None
+                dest_md = dest_parent / blog_copy_name
 
-        if blog_copied:
-            logger.info("[%s] Committing to blog repo...", vid)
-            if not push_blog_repo(blog_repo, dest, [extracted_title]):
-                logger.error("[%s] Git commit failed - will not mark as seen", vid)
-                stats["failed"] += 1
-                continue
+            blog_copied = False
+            if dest_md.exists():
+                logger.info("[%s] Already in blog repo, skipping copy", vid)
+            else:
+                logger.info("[%s] Copying to blog repo: %s/%s", vid, channel_slug, blog_copy_name)
+                if is_bundle:
+                    shutil.copytree(blog_src_dir, dest_dir)
+                else:
+                    dest_parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(blog_path, dest_md)
+                blog_copied = True
+
+            if not dest_md.read_text(encoding="utf-8").startswith("+++\n"):
+                logger.info("[%s] Linting markdown...", vid)
+                lint_markdown(dest_md)
+                logger.info("[%s] Generating AI tags...", vid)
+                ai_tags = generate_ai_tags(dest_md)
+                all_tags = list(config["hugo_tags"]) + [channel_slug] + ai_tags
+                seen = set()
+                unique_tags = []
+                for t in all_tags:
+                    if t not in seen:
+                        seen.add(t)
+                        unique_tags.append(t)
+                logger.info("[%s] Adding Hugo front matter to %s", vid, dest_md.name)
+                extracted_title = add_hugo_front_matter(
+                    dest_md,
+                    categories=config["hugo_categories"],
+                    tags=unique_tags,
+                )
+                blog_copied = True
+            else:
+                logger.info("[%s] Hugo front matter already present", vid)
+
+            if blog_copied:
+                commit_path = dest_dir if is_bundle else dest_md
+                logger.info("[%s] Committing to blog repo...", vid)
+                if not push_blog_repo(blog_repo, commit_path, [extracted_title]):
+                    logger.error("[%s] Git commit failed - will not mark as seen", vid)
+                    stats["failed"] += 1
+                    continue
 
         if llmwiki_dir is not None:
-            wiki_dest = llmwiki_dir / "raw" / blog_path.name
-            if wiki_dest.exists():
-                logger.info("[%s] Already in LLM wiki raw, skipping copy", vid)
+            wiki_src = dest_md if blog_repo is not None else blog_path
+            if is_bundle:
+                wiki_dest = llmwiki_dir / "raw" / blog_copy_name
+                if wiki_dest.exists():
+                    logger.info("[%s] Already in LLM wiki raw, skipping copy", vid)
+                else:
+                    logger.info("[%s] Copying bundle to LLM wiki raw: %s", vid, blog_copy_name)
+                    src_dir = dest_dir if blog_repo is not None else blog_src_dir
+                    shutil.copytree(src_dir, wiki_dest)
             else:
-                logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_path.name)
-                wiki_dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(dest, wiki_dest)
+                wiki_dest = llmwiki_dir / "raw" / blog_copy_name
+                if wiki_dest.exists():
+                    logger.info("[%s] Already in LLM wiki raw, skipping copy", vid)
+                else:
+                    logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_copy_name)
+                    wiki_dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(wiki_src, wiki_dest)
 
         state.mark_seen(vid, {
             "title": extracted_title,
-            "filename": blog_path.name,
+            "filename": blog_copy_name,
             "channel": channel_name,
             "published": True,
         })
@@ -427,6 +559,17 @@ def main() -> int:
         help="Show what would be processed without making changes (not compatible with --url)",
     )
     parser.add_argument(
+        "--cookies-from-browser",
+        metavar="BROWSER",
+        default=None,
+        help="Use cookies from BROWSER (e.g. chrome) to authenticate yt-dlp requests and avoid 429 rate limits.",
+    )
+    parser.add_argument(
+        "--use-eyes",
+        action="store_true",
+        help="Use /youtube-eyes instead of /youtube-blog (extracts video frames with YOLOv8 + OCR).",
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable debug logging (shows claude output, detailed diagnostics)",
@@ -438,16 +581,18 @@ def main() -> int:
         help="Path to channels.toml config file",
     )
     args = parser.parse_args()
+    if args.cookies_from_browser:
+        os.environ["YOUTUBE_TRANSCRIPT_COOKIES_BROWSER"] = args.cookies_from_browser
     config = load_config(args.config)
     setup_logging("autopublish", verbose=args.verbose,
                   log_file=config["state_dir"] / "automation.log")
     if args.url:
         if args.dry_run:
             parser.error("--dry-run cannot be used with --url")
-        return run_single(args.config, args.url, force=args.force)
+        return run_single(args.config, args.url, force=args.force, use_eyes=args.use_eyes)
     if args.force:
         parser.error("--force can only be used with --url")
-    return run(args.config, dry_run=args.dry_run)
+    return run(args.config, dry_run=args.dry_run, use_eyes=args.use_eyes)
 
 
 if __name__ == "__main__":

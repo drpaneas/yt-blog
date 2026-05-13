@@ -88,6 +88,15 @@ youtube_repo_dir = "/tmp/yt"
 """))
         self.assertEqual(config["podcasts"], [])
 
+    def test_blog_repo_optional(self):
+        config = load_config(self._write_config("""
+[paths]
+youtube_repo_dir = "/tmp/yt"
+"""))
+        self.assertIsNone(config["blog_repo"])
+        self.assertIsNone(config["blog_content_dir"])
+        self.assertIsNone(config["blog_branch"])
+
 
 class TestExtractPodcastId(unittest.TestCase):
     def test_full_url(self):
@@ -200,3 +209,82 @@ class TestGenerateBlogPost(unittest.TestCase):
         result = generate_blog_post(transcript, "12345", "https://example.com/ep", self.tmp)
 
         self.assertIsNone(result)
+
+
+class TestPublishEpisodeNoBlog(unittest.TestCase):
+    """_publish_episode should succeed and return title when blog_repo is None."""
+
+    def setUp(self):
+        self.tmpdir = TemporaryDirectory()
+        self.tmp = Path(self.tmpdir.name)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_returns_title_and_success_without_blog(self):
+        blog_file = self.tmp / "podcast-blog-test-ep-12345.md"
+        blog_file.write_text("# My Episode Title\n\nContent here.")
+
+        from podcast_autopublish import _publish_episode
+        title, success = _publish_episode(
+            episode_id="12345",
+            blog_path=blog_file,
+            podcast_name="Test Pod",
+            blog_repo=None,
+            blog_content_dir=None,
+            llmwiki_dir=None,
+            title="Fallback Title",
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(title, "My Episode Title")
+
+    def test_copies_to_wiki_without_blog(self):
+        blog_file = self.tmp / "podcast-blog-test-ep-12345.md"
+        blog_file.write_text("# Title\n\nContent.")
+        wiki_dir = self.tmp / "wiki"
+        wiki_dir.mkdir()
+        (wiki_dir / "raw").mkdir()
+
+        from podcast_autopublish import _publish_episode
+        title, success = _publish_episode(
+            episode_id="12345",
+            blog_path=blog_file,
+            podcast_name="Test Pod",
+            blog_repo=None,
+            blog_content_dir=None,
+            llmwiki_dir=wiki_dir,
+            title="Fallback",
+        )
+
+        self.assertTrue(success)
+        wiki_file = wiki_dir / "raw" / "podcast-blog-test-ep-12345.md"
+        self.assertTrue(wiki_file.exists())
+
+
+class TestRunNoBlog(unittest.TestCase):
+    """Podcast run functions should work without blog_repo."""
+
+    def setUp(self):
+        self.tmpdir = TemporaryDirectory()
+        self.tmp = Path(self.tmpdir.name)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _write_config(self, content: str) -> Path:
+        p = self.tmp / "channels.toml"
+        p.write_text(content)
+        return p
+
+    def test_load_config_no_blog(self):
+        config = load_config(self._write_config("""
+[paths]
+youtube_repo_dir = "/tmp/yt"
+
+[[podcast]]
+name = "Test Pod"
+podcast_id = "123"
+"""))
+        self.assertIsNone(config["blog_repo"])
+        self.assertEqual(len(config["podcasts"]), 1)

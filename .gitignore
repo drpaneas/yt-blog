@@ -14,4 +14,6 @@ venv/
 .DS_Store
 channels.toml
 .superpowers/
-docs/
+docs/youtube_tools.egg-info/
+.worktrees/
+yolov8n.pt

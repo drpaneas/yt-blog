@@ -104,6 +104,15 @@ youtube_repo_dir = "/tmp/yt"
 """))
         self.assertEqual(config["state_dir"], Path("/tmp/my-state").resolve())
 
+    def test_blog_repo_optional(self):
+        config = load_config(self._write_config("""
+[paths]
+youtube_repo_dir = "/tmp/yt"
+"""))
+        self.assertIsNone(config["blog_repo"])
+        self.assertIsNone(config["blog_content_dir"])
+        self.assertIsNone(config["blog_branch"])
+
     def test_optional_llmwiki(self):
         config = load_config(self._write_config("""
 [paths]
