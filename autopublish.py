@@ -219,23 +219,40 @@ def run_single(config_path: Path, video_url: str, force: bool = False, use_eyes:
             logger.error("[%s] Blog generation failed", vid)
             return 1
 
-    extracted_title = blog_path.stem
+    if blog_path.name == "index.md":
+        extracted_title = blog_path.parent.name
+    else:
+        extracted_title = blog_path.stem
+    is_bundle = blog_path.name == "index.md"
+    blog_src_dir = blog_path.parent if is_bundle else None
+    blog_copy_name = blog_src_dir.name if is_bundle else blog_path.name
+
     if blog_repo is not None:
-        dest = blog_repo / blog_content_dir / channel_slug / blog_path.name
+        dest_parent = blog_repo / blog_content_dir / channel_slug
+        if is_bundle:
+            dest_dir = dest_parent / blog_copy_name
+            dest_md = dest_dir / "index.md"
+        else:
+            dest_dir = None
+            dest_md = dest_parent / blog_copy_name
+
         blog_copied = False
-        if dest.exists():
+        if dest_md.exists():
             logger.info("[%s] Already in blog repo, skipping copy", vid)
         else:
-            logger.info("[%s] Copying to blog repo: %s", vid, blog_path.name)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(blog_path, dest)
+            logger.info("[%s] Copying to blog repo: %s", vid, blog_copy_name)
+            if is_bundle:
+                shutil.copytree(blog_src_dir, dest_dir)
+            else:
+                dest_parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(blog_path, dest_md)
             blog_copied = True
 
-        if not dest.read_text(encoding="utf-8").startswith("+++\n"):
+        if not dest_md.read_text(encoding="utf-8").startswith("+++\n"):
             logger.info("[%s] Linting markdown...", vid)
-            lint_markdown(dest)
+            lint_markdown(dest_md)
             logger.info("[%s] Generating AI tags...", vid)
-            ai_tags = generate_ai_tags(dest)
+            ai_tags = generate_ai_tags(dest_md)
             all_tags = list(config["hugo_tags"]) + [channel_slug] + ai_tags
             seen = set()
             unique_tags = []
@@ -243,16 +260,16 @@ def run_single(config_path: Path, video_url: str, force: bool = False, use_eyes:
                 if t not in seen:
                     seen.add(t)
                     unique_tags.append(t)
-            logger.info("[%s] Adding Hugo front matter to %s", vid, dest.name)
+            logger.info("[%s] Adding Hugo front matter to %s", vid, dest_md.name)
             extracted_title = add_hugo_front_matter(
-                dest,
+                dest_md,
                 categories=config["hugo_categories"],
                 tags=unique_tags,
             )
             blog_copied = True
         else:
             logger.info("[%s] Hugo front matter already present", vid)
-            text = dest.read_text(encoding="utf-8")
+            text = dest_md.read_text(encoding="utf-8")
             for line in text.split("\n"):
                 m = re.match(r'^title\s*=\s*"(.+)"', line)
                 if m:
@@ -260,8 +277,9 @@ def run_single(config_path: Path, video_url: str, force: bool = False, use_eyes:
                     break
 
         if blog_copied:
+            commit_path = dest_dir if is_bundle else dest_md
             logger.info("[%s] Committing to blog repo...", vid)
-            if not push_blog_repo(blog_repo, dest, [extracted_title]):
+            if not push_blog_repo(blog_repo, commit_path, [extracted_title]):
                 logger.error("[%s] Git commit failed - will not mark as seen", vid)
                 return 1
     else:
@@ -273,14 +291,23 @@ def run_single(config_path: Path, video_url: str, force: bool = False, use_eyes:
                 break
 
     if llmwiki_dir is not None:
-        wiki_src = dest if blog_repo is not None else blog_path
-        wiki_dest = llmwiki_dir / "raw" / blog_path.name
-        if wiki_dest.exists():
-            logger.info("[%s] Already in LLM wiki raw, skipping copy", vid)
+        wiki_src = dest_md if blog_repo is not None else blog_path
+        if is_bundle:
+            wiki_dest = llmwiki_dir / "raw" / blog_copy_name
+            if wiki_dest.exists():
+                logger.info("[%s] Already in LLM wiki raw, skipping copy", vid)
+            else:
+                logger.info("[%s] Copying bundle to LLM wiki raw: %s", vid, blog_copy_name)
+                src_dir = dest_dir if blog_repo is not None else blog_src_dir
+                shutil.copytree(src_dir, wiki_dest)
         else:
-            logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_path.name)
-            wiki_dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(wiki_src, wiki_dest)
+            wiki_dest = llmwiki_dir / "raw" / blog_copy_name
+            if wiki_dest.exists():
+                logger.info("[%s] Already in LLM wiki raw, skipping copy", vid)
+            else:
+                logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_copy_name)
+                wiki_dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(wiki_src, wiki_dest)
 
     state.mark_seen(vid, {
         "title": extracted_title,
@@ -292,7 +319,7 @@ def run_single(config_path: Path, video_url: str, force: bool = False, use_eyes:
     return 0
 
 
-def run(config_path: Path, dry_run: bool = False) -> int:
+def run(config_path: Path, dry_run: bool = False, use_eyes: bool = False) -> int:
     config = load_config(config_path)
     state = StateManager(config["state_dir"], prefix="youtube:")
     logger = logging.getLogger(__name__)
@@ -369,7 +396,7 @@ def run(config_path: Path, dry_run: bool = False) -> int:
         )
         with ThreadPoolExecutor(max_workers=max_parallel) as pool:
             futures = {
-                pool.submit(generate_blog_post, v["url"], v["video_id"], youtube_repo): v
+                pool.submit(generate_blog_post, v["url"], v["video_id"], youtube_repo, use_eyes=use_eyes): v
                 for v in videos_needing_generation
             }
             for future in as_completed(futures):
@@ -398,22 +425,36 @@ def run(config_path: Path, dry_run: bool = False) -> int:
             continue
 
         extracted_title = title
+        is_bundle = blog_path.name == "index.md"
+        blog_src_dir = blog_path.parent if is_bundle else None
+        blog_copy_name = blog_src_dir.name if is_bundle else blog_path.name
+
         if blog_repo is not None:
-            dest = blog_repo / blog_content_dir / channel_slug / blog_path.name
+            dest_parent = blog_repo / blog_content_dir / channel_slug
+            if is_bundle:
+                dest_dir = dest_parent / blog_copy_name
+                dest_md = dest_dir / "index.md"
+            else:
+                dest_dir = None
+                dest_md = dest_parent / blog_copy_name
+
             blog_copied = False
-            if dest.exists():
+            if dest_md.exists():
                 logger.info("[%s] Already in blog repo, skipping copy", vid)
             else:
-                logger.info("[%s] Copying to blog repo: %s/%s", vid, channel_slug, blog_path.name)
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(blog_path, dest)
+                logger.info("[%s] Copying to blog repo: %s/%s", vid, channel_slug, blog_copy_name)
+                if is_bundle:
+                    shutil.copytree(blog_src_dir, dest_dir)
+                else:
+                    dest_parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(blog_path, dest_md)
                 blog_copied = True
 
-            if not dest.read_text(encoding="utf-8").startswith("+++\n"):
+            if not dest_md.read_text(encoding="utf-8").startswith("+++\n"):
                 logger.info("[%s] Linting markdown...", vid)
-                lint_markdown(dest)
+                lint_markdown(dest_md)
                 logger.info("[%s] Generating AI tags...", vid)
-                ai_tags = generate_ai_tags(dest)
+                ai_tags = generate_ai_tags(dest_md)
                 all_tags = list(config["hugo_tags"]) + [channel_slug] + ai_tags
                 seen = set()
                 unique_tags = []
@@ -421,9 +462,9 @@ def run(config_path: Path, dry_run: bool = False) -> int:
                     if t not in seen:
                         seen.add(t)
                         unique_tags.append(t)
-                logger.info("[%s] Adding Hugo front matter to %s", vid, dest.name)
+                logger.info("[%s] Adding Hugo front matter to %s", vid, dest_md.name)
                 extracted_title = add_hugo_front_matter(
-                    dest,
+                    dest_md,
                     categories=config["hugo_categories"],
                     tags=unique_tags,
                 )
@@ -432,21 +473,31 @@ def run(config_path: Path, dry_run: bool = False) -> int:
                 logger.info("[%s] Hugo front matter already present", vid)
 
             if blog_copied:
+                commit_path = dest_dir if is_bundle else dest_md
                 logger.info("[%s] Committing to blog repo...", vid)
-                if not push_blog_repo(blog_repo, dest, [extracted_title]):
+                if not push_blog_repo(blog_repo, commit_path, [extracted_title]):
                     logger.error("[%s] Git commit failed - will not mark as seen", vid)
                     stats["failed"] += 1
                     continue
 
         if llmwiki_dir is not None:
-            wiki_src = dest if blog_repo is not None else blog_path
-            wiki_dest = llmwiki_dir / "raw" / blog_path.name
-            if wiki_dest.exists():
-                logger.info("[%s] Already in LLM wiki raw, skipping copy", vid)
+            wiki_src = dest_md if blog_repo is not None else blog_path
+            if is_bundle:
+                wiki_dest = llmwiki_dir / "raw" / blog_copy_name
+                if wiki_dest.exists():
+                    logger.info("[%s] Already in LLM wiki raw, skipping copy", vid)
+                else:
+                    logger.info("[%s] Copying bundle to LLM wiki raw: %s", vid, blog_copy_name)
+                    src_dir = dest_dir if blog_repo is not None else blog_src_dir
+                    shutil.copytree(src_dir, wiki_dest)
             else:
-                logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_path.name)
-                wiki_dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(wiki_src, wiki_dest)
+                wiki_dest = llmwiki_dir / "raw" / blog_copy_name
+                if wiki_dest.exists():
+                    logger.info("[%s] Already in LLM wiki raw, skipping copy", vid)
+                else:
+                    logger.info("[%s] Copying to LLM wiki raw: %s", vid, blog_copy_name)
+                    wiki_dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(wiki_src, wiki_dest)
 
         state.mark_seen(vid, {
             "title": extracted_title,
@@ -519,7 +570,7 @@ def main() -> int:
         return run_single(args.config, args.url, force=args.force, use_eyes=args.use_eyes)
     if args.force:
         parser.error("--force can only be used with --url")
-    return run(args.config, dry_run=args.dry_run)
+    return run(args.config, dry_run=args.dry_run, use_eyes=args.use_eyes)
 
 
 if __name__ == "__main__":

@@ -121,6 +121,8 @@ def detect_scenes(video_path: Path, output_dir: Path) -> list[tuple[Path, float]
     cap = cv2.VideoCapture(str(video_path))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     frames: list[tuple[Path, float]] = []
+    prev_ts_int = -1
+    sub_seq = 0
 
     for scene_start, _ in scene_list:
         timestamp_sec = scene_start.get_seconds()
@@ -131,7 +133,16 @@ def detect_scenes(video_path: Path, output_dir: Path) -> list[tuple[Path, float]
             continue
 
         ts_int = int(timestamp_sec)
-        filename = f"frame-{ts_int:04d}s.png"
+        if ts_int == prev_ts_int:
+            sub_seq += 1
+        else:
+            sub_seq = 0
+            prev_ts_int = ts_int
+
+        if sub_seq == 0:
+            filename = f"frame-{ts_int:04d}s.png"
+        else:
+            filename = f"frame-{ts_int:04d}s-{sub_seq}.png"
         frame_path = output_dir / filename
         cv2.imwrite(str(frame_path), frame)
         frames.append((frame_path, timestamp_sec))
@@ -197,9 +208,13 @@ def filter_persons(
 ) -> list[tuple[Path, float, str]]:
     """Filter out frames dominated by people. Returns [(path, ts, tag), ...]."""
     from ultralytics import YOLO
+    from ultralytics import settings as ul_settings
     import cv2
 
-    model = YOLO("yolov8n.pt")
+    cache_dir = Path(ul_settings.get("weights_dir", Path.home() / ".cache" / "ultralytics"))
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    model_path = cache_dir / "yolov8n.pt"
+    model = YOLO(str(model_path))
     PERSON_CLASS = 0
     SCREEN_CLASSES = {62, 63, 67, 73}  # tv, laptop, cell phone, book
 
@@ -257,11 +272,15 @@ def filter_persons(
 # Stage 4: OCR + content classification
 # ---------------------------------------------------------------------------
 
-_CODE_INDICATORS = re.compile(
-    r"[{}\[\]();=]|->|=>|::|&&|\|\||"
-    r"\b(?:def|fn|func|function|class|struct|enum|impl|import|from|return|"
-    r"const|let|var|if|else|for|while|match|switch|case|try|catch|pub|"
-    r"void|int|bool|char|float|string|str|self|this|null|nil|None|true|false)\b"
+_CODE_SYNTAX = re.compile(
+    r"[{}\[\]();]|->|=>|::|&&|\|\||[!=]==|<<|>>|#include|#define|@import|:\s*$",
+    re.MULTILINE,
+)
+
+_CODE_KEYWORDS = re.compile(
+    r"\b(?:def|fn|func|function|class|struct|enum|impl|import|return|"
+    r"const|let|var|while|match|switch|case|catch|pub|"
+    r"void|int|bool|char|float|string|println|printf|std)\b"
 )
 
 
@@ -271,10 +290,13 @@ def _classify_ocr_text(text: str) -> str:
         return "diagram"
 
     lines = text.strip().split("\n")
-    code_matches = len(_CODE_INDICATORS.findall(text))
-    total_chars = len(text)
+    syntax_matches = len(_CODE_SYNTAX.findall(text))
+    keyword_matches = len(_CODE_KEYWORDS.findall(text))
+    total_indicators = syntax_matches + keyword_matches
 
-    if code_matches > 3 or (total_chars > 0 and code_matches / max(len(lines), 1) > 0.5):
+    if syntax_matches >= 3 and total_indicators > 4:
+        return "code"
+    if total_indicators / max(len(lines), 1) > 1.0:
         return "code"
 
     return "slide"
@@ -293,8 +315,8 @@ def run_ocr(
         try:
             ocr_results = reader.readtext(str(path), detail=0, paragraph=True)
             ocr_text = "\n".join(ocr_results).strip() if ocr_results else None
-        except Exception:
-            logger.warning("OCR failed for %s", path.name)
+        except (OSError, RuntimeError, ValueError) as exc:
+            logger.warning("OCR failed for %s: %s", path.name, exc, exc_info=True)
             ocr_text = None
 
         content_type = _classify_ocr_text(ocr_text) if ocr_text else "diagram"
