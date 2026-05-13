@@ -203,6 +203,10 @@ def run_single(config_path: Path, video_url: str, force: bool = False, use_eyes:
             for f in (llmwiki_dir / "raw").glob(f"youtube-blog-*-{vid}.md"):
                 logger.info("[%s] Deleting: %s", vid, f)
                 f.unlink()
+            for d in (llmwiki_dir / "raw").glob(f"youtube-blog-*-{vid}"):
+                if d.is_dir():
+                    logger.info("[%s] Deleting wiki bundle: %s", vid, d)
+                    shutil.rmtree(d)
 
     search_dirs = [youtube_repo]
     if blog_repo is not None:
@@ -311,7 +315,7 @@ def run_single(config_path: Path, video_url: str, force: bool = False, use_eyes:
 
     state.mark_seen(vid, {
         "title": extracted_title,
-        "filename": blog_path.name,
+        "filename": blog_copy_name,
         "channel": channel_name,
         "published": True,
     })
@@ -501,7 +505,7 @@ def run(config_path: Path, dry_run: bool = False, use_eyes: bool = False) -> int
 
         state.mark_seen(vid, {
             "title": extracted_title,
-            "filename": blog_path.name,
+            "filename": blog_copy_name,
             "channel": channel_name,
             "published": True,
         })

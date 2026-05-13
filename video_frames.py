@@ -211,9 +211,12 @@ def filter_persons(
     from ultralytics import settings as ul_settings
     import cv2
 
-    cache_dir = Path(ul_settings.get("weights_dir", Path.home() / ".cache" / "ultralytics"))
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    model_path = cache_dir / "yolov8n.pt"
+    raw_weights = ul_settings.get("weights_dir", "")
+    weights_path = Path(raw_weights).expanduser() if raw_weights else None
+    if weights_path is None or not weights_path.is_absolute():
+        weights_path = Path.home() / ".cache" / "ultralytics"
+    weights_path.mkdir(parents=True, exist_ok=True)
+    model_path = weights_path / "yolov8n.pt"
     model = YOLO(str(model_path))
     PERSON_CLASS = 0
     SCREEN_CLASSES = {62, 63, 67, 73}  # tv, laptop, cell phone, book
