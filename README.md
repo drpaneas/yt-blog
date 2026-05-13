@@ -197,14 +197,28 @@ Options:
 - `--no-ocr` - skip OCR step (faster, no text extraction)
 - `--json` - print metadata JSON to stdout
 
+Additional options:
+
+- `--cleanup-video FRAMES_JSON` - delete the video file referenced in a frames.json metadata file (used by `/youtube-eyes` for cleanup)
+
 The pipeline:
 
-1. Downloads the video at best available quality via yt-dlp
+1. Downloads the video at best available quality via yt-dlp (kept in a temp directory for on-demand frame extraction)
 2. Detects scene changes with [PySceneDetect](https://github.com/Breakthrough/PySceneDetect)
 3. Deduplicates near-identical frames with perceptual hashing
 4. Filters out person-dominated frames with [YOLOv8](https://github.com/ultralytics/ultralytics)
 5. Extracts text and classifies content with [EasyOCR](https://github.com/JaidedAI/EasyOCR)
-6. Writes frame PNGs and a `frames.json` metadata file with timestamps, types, and OCR text
+6. Writes frame PNGs and a `frames.json` metadata file with timestamps, types, OCR text, and the path to the kept video file
+
+### Frame-at
+
+Extract a single frame from a video file at a specific timestamp:
+
+```bash
+frame-at /path/to/video.mp4 42.5 ./output-frame.png
+```
+
+This is a lightweight ffmpeg wrapper used by `/youtube-eyes` for on-demand frame extraction when scene detection misses live-typed code or REPL demos. It validates timestamps and enforces PNG output.
 
 ## Claude Code commands
 
@@ -224,7 +238,22 @@ Fetches the transcript, reads `pedagogic.md` for style, derives an outline, and 
 /youtube-eyes <youtube-url>
 ```
 
-Same pedagogic style as `/youtube-blog`, but also extracts video frames (code screenshots, diagrams, slides) and reconstructs their content in the article. Outputs a Hugo page bundle (directory with `index.md` + any remaining images) instead of a flat `.md` file. Code frames are transcribed into fenced code blocks, diagrams are reconstructed as ASCII art or Markdown, and slides are converted to text. Screenshots are only embedded when the visual is too complex to reproduce faithfully in text.
+Same pedagogic style as `/youtube-blog`, but the software also "watches" the video. It extracts key frames using computer vision (PySceneDetect + YOLOv8 + EasyOCR), then Claude reads the frames visually and reconstructs their content in the article:
+
+- **Code** shown on screen is transcribed into fenced code blocks (not screenshots)
+- **Diagrams** are reconstructed as ASCII art or Markdown when possible
+- **Slides** are converted to text (headings, bullet lists, tables)
+- **Live-typed code** that scene detection misses is captured on demand via `frame-at` when the transcript implies something is being shown
+- Screenshots are only embedded as a last resort when the visual is too complex to reproduce in text
+
+The output is a Hugo page bundle (directory with `index.md` + any remaining images) instead of a flat `.md` file.
+
+How it works (two-pass approach):
+
+1. `video-frames` downloads the video, detects scene changes, filters out talking-head shots with YOLOv8, and runs OCR on the remaining frames
+2. Claude reads the transcript and extracted frames together, identifies gaps where the speaker is demonstrating something live but no frame exists, and uses `frame-at` to grab additional frames at specific timestamps
+3. Claude writes the article, reading each frame image to transcribe code and reconstruct diagrams - preferring text over screenshots
+4. Cleanup removes the video file (500MB+), unused frames, and metadata
 
 Falls back to transcript-only mode if frame extraction fails (video unavailable, ffmpeg missing, etc.).
 
