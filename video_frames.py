@@ -350,6 +350,7 @@ def write_metadata(
     video_id: str | None,
     duration_sec: float,
     frame_data: list[dict],
+    video_path: Path | None = None,
 ) -> Path:
     """Write frames metadata JSON. Returns path to the JSON file."""
     metadata = {
@@ -358,6 +359,8 @@ def write_metadata(
         "frame_count": len(frame_data),
         "frames": frame_data,
     }
+    if video_path is not None:
+        metadata["video_path"] = str(video_path)
     meta_path = output_dir / "frames.json"
     meta_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
     logger.info("Wrote metadata to %s (%d frames)", meta_path, len(frame_data))
@@ -382,13 +385,17 @@ def extract_frames(
     video_id = _youtube_video_id(url)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
-        video_path = download_video(url, tmp_path, cookies_from_browser)
-        duration = get_video_duration(video_path)
+    video_tmp = Path(tempfile.mkdtemp(prefix=f"video-frames-{video_id or 'unknown'}-"))
+    try:
+        video_path = download_video(url, video_tmp, cookies_from_browser)
+    except Exception:
+        import shutil
+        shutil.rmtree(video_tmp, ignore_errors=True)
+        raise
 
-        frames = detect_scenes(video_path, output_dir)
-        frames = deduplicate_frames(frames)
+    duration = get_video_duration(video_path)
+    frames = detect_scenes(video_path, output_dir)
+    frames = deduplicate_frames(frames)
 
     if not keep_all:
         tagged_frames = filter_persons(frames)
@@ -409,4 +416,4 @@ def extract_frames(
     else:
         frame_data = run_ocr(tagged_frames)
 
-    return write_metadata(output_dir, video_id, duration, frame_data)
+    return write_metadata(output_dir, video_id, duration, frame_data, video_path=video_path)

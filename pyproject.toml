@@ -21,6 +21,7 @@ podcast-transcript-cli = "podcast_transcript_cli:main"
 autopublish = "autopublish:main"
 podcast-autopublish = "podcast_autopublish:main"
 video-frames = "video_frames_cli:main"
+frame-at = "frame_at_cli:main"
 
 [tool.setuptools]
 py-modules = [
@@ -39,4 +40,6 @@ py-modules = [
     "state_manager",
     "video_frames",
     "video_frames_cli",
+    "frame_at",
+    "frame_at_cli",
 ]

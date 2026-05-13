@@ -71,7 +71,7 @@ def generate_blog_post(
     logger = logging.getLogger(__name__)
     if use_eyes:
         command_name = "/youtube-eyes"
-        allowed_tools = "Read,Write,Edit,Glob,Grep,Bash(python3 transcript_cli.py *),Bash(video-frames *),Bash(date +*)"
+        allowed_tools = "Read,Write,Edit,Glob,Grep,Bash(python3 transcript_cli.py *),Bash(video-frames *),Bash(frame-at *),Bash(rm *),Bash(date +*)"
         timeout = 1200
     else:
         command_name = "/youtube-blog"
