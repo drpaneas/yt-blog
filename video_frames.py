@@ -48,7 +48,7 @@ def download_video(
     output_dir: Path,
     cookies_from_browser: str | None = None,
 ) -> Path:
-    """Download a YouTube video at 480p or lower. Returns path to the file."""
+    """Download a YouTube video at best available quality. Returns path to the file."""
     output_dir.mkdir(parents=True, exist_ok=True)
     output_template = str(output_dir / "%(id)s.%(ext)s")
 
@@ -56,7 +56,7 @@ def download_video(
         "yt-dlp",
         *_impersonate_cli_args(),
         *_cookies_cli_args(cookies_from_browser),
-        "-f", "bestvideo[height<=480]+bestaudio/best[height<=480]",
+        "-f", "bestvideo+bestaudio/best",
         "--merge-output-format", "mp4",
         "-o", output_template,
         url,

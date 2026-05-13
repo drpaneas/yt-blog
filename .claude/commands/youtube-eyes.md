@@ -2,7 +2,7 @@
 description: Write a pedagogic developer blog post from a YouTube URL, with extracted video frames (code, diagrams, slides)
 argument-hint: <youtube-url>
 disable-model-invocation: true
-allowed-tools: Read Write Edit Glob Grep Bash(python3 transcript_cli.py *) Bash(python3 video_frames_cli.py *) Bash(date +%Y%m%d-%H%M%S)
+allowed-tools: Read Write Edit Glob Grep Bash(python3 transcript_cli.py *) Bash(video-frames *) Bash(date +%Y%m%d-%H%M%S)
 ---
 
 Turn the YouTube URL in `$ARGUMENTS` into a polished pedagogic Markdown blog post enriched with visual content extracted from the video.
@@ -41,7 +41,7 @@ Follow this workflow exactly.
 - Derive the video ID from the YouTube URL (e.g. `Gv2I7qTux7g` from `youtube.com/watch?v=Gv2I7qTux7g`).
 - Determine the article's output directory name: `youtube-blog-<slug>-<video-id>` (you will finalize `<slug>` in step 5, so use a temporary slug like `draft` for now; you can rename the directory later).
 - Create the output directory at the workspace root.
-- Run `python3 video_frames_cli.py --json --output-dir <output-dir> "$ARGUMENTS"` from the directory that contains `video_frames_cli.py`.
+- Run `video-frames --json --output-dir <output-dir> "$ARGUMENTS"` (uses the installed entry point which has access to the ML dependencies).
 - If frame extraction succeeds, read the metadata JSON output. It contains:
   - `total_duration_sec` - total video length
   - `frames` - array of extracted frames, each with `file` (filename), `timestamp_sec` (when in the video), `type` (`code`, `slide`, or `diagram`), and `ocr_text` (extracted text, or null for diagrams)
