@@ -10,6 +10,9 @@ dependencies = [
     "yt-dlp>=2026.03.17",
     "openai-whisper",
     "tomli>=2.0.0;python_version<'3.11'",
+    "scenedetect[opencv]",
+    "ultralytics",
+    "easyocr",
 ]
 
 [project.scripts]
@@ -17,6 +20,7 @@ transcript-cli = "transcript_cli:main"
 podcast-transcript-cli = "podcast_transcript_cli:main"
 autopublish = "autopublish:main"
 podcast-autopublish = "podcast_autopublish:main"
+video-frames = "video_frames_cli:main"
 
 [tool.setuptools]
 py-modules = [
@@ -33,4 +37,6 @@ py-modules = [
     "publish_utils",
     "relevance_filter",
     "state_manager",
+    "video_frames",
+    "video_frames_cli",
 ]

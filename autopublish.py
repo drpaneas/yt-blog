@@ -50,33 +50,59 @@ def load_config(config_path: Path) -> dict:
     }
 
 
-def generate_blog_post(video_url: str, video_id: str, youtube_repo: Path) -> Path | None:
+def _find_blog_output(youtube_repo: Path, video_id: str) -> Path | None:
+    """Find a generated blog post by video ID, checking both flat files and page bundles."""
+    flat = list(youtube_repo.glob(f"youtube-blog-*-{video_id}.md"))
+    bundles = [
+        p for p in youtube_repo.glob(f"youtube-blog-*-{video_id}/index.md")
+    ]
+    candidates = flat + bundles
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+
+
+def generate_blog_post(
+    video_url: str,
+    video_id: str,
+    youtube_repo: Path,
+    use_eyes: bool = False,
+) -> Path | None:
     logger = logging.getLogger(__name__)
+    if use_eyes:
+        command_name = "/youtube-eyes"
+        allowed_tools = "Read,Write,Edit,Glob,Grep,Bash(python3 transcript_cli.py *),Bash(python3 video_frames_cli.py *),Bash(date +*)"
+        timeout = 1200
+    else:
+        command_name = "/youtube-blog"
+        allowed_tools = "Read,Write,Edit,Glob,Grep,Bash(python3 transcript_cli.py *),Bash(date +*)"
+        timeout = 900
+
     try:
         result = subprocess.run(
             [
-                "claude", "-p", f"/youtube-blog {video_url}",
+                "claude", "-p", f"{command_name} {video_url}",
                 "-d", str(youtube_repo),
                 "--dangerously-skip-permissions",
-                "--allowedTools", "Read,Write,Edit,Glob,Grep,Bash(python3 transcript_cli.py *),Bash(date +*)",
+                "--allowedTools", allowed_tools,
             ],
             capture_output=True,
             text=True,
-            timeout=900,
+            timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        logger.error("[%s] Blog generation timed out after 900s", video_id)
+        logger.error("[%s] Blog generation timed out after %ds", video_id, timeout)
         return None
     logger.debug("[%s] claude stdout:\n%s", video_id, result.stdout)
     logger.debug("[%s] claude stderr:\n%s", video_id, result.stderr)
     if result.returncode != 0:
         logger.error("[%s] Blog generation failed (exit %d): %s", video_id, result.returncode, result.stderr)
         return None
-    matches = list(youtube_repo.glob(f"youtube-blog-*-{video_id}.md"))
-    if not matches:
+    blog_path = _find_blog_output(youtube_repo, video_id)
+    if blog_path is None:
         logger.error("[%s] Blog generation produced no file matching video ID", video_id)
         return None
-    return max(matches, key=lambda p: p.stat().st_mtime)
+    return blog_path
 
 
 def _detect_channel_name(video_url: str) -> str:
@@ -102,9 +128,11 @@ def _find_existing_blog(video_id: str, *search_dirs: Path) -> Path | None:
     for directory in search_dirs:
         if not directory.exists():
             continue
-        matches = list(directory.rglob(f"youtube-blog-*-{video_id}.md"))
-        if matches:
-            return max(matches, key=lambda p: p.stat().st_mtime)
+        flat = list(directory.rglob(f"youtube-blog-*-{video_id}.md"))
+        bundles = list(directory.rglob(f"youtube-blog-*-{video_id}/index.md"))
+        candidates = flat + bundles
+        if candidates:
+            return max(candidates, key=lambda p: p.stat().st_mtime)
     return None
 
 
@@ -121,7 +149,7 @@ def _extract_video_id(url: str) -> str | None:
     return None
 
 
-def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
+def run_single(config_path: Path, video_url: str, force: bool = False, use_eyes: bool = False) -> int:
     config = load_config(config_path)
     state = StateManager(config["state_dir"], prefix="youtube:")
     logger = logging.getLogger(__name__)
@@ -158,11 +186,19 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
         for f in youtube_repo.glob(f"youtube-blog-*-{vid}.md"):
             logger.info("[%s] Deleting: %s", vid, f)
             f.unlink()
+        for d in youtube_repo.glob(f"youtube-blog-*-{vid}"):
+            if d.is_dir():
+                logger.info("[%s] Deleting bundle: %s", vid, d)
+                shutil.rmtree(d)
         if blog_repo is not None:
-            for d in [blog_repo / blog_content_dir / channel_slug, blog_repo / blog_content_dir]:
-                for f in d.glob(f"youtube-blog-*-{vid}.md"):
+            for search_d in [blog_repo / blog_content_dir / channel_slug, blog_repo / blog_content_dir]:
+                for f in search_d.glob(f"youtube-blog-*-{vid}.md"):
                     logger.info("[%s] Deleting: %s", vid, f)
                     f.unlink()
+                for d in search_d.glob(f"youtube-blog-*-{vid}"):
+                    if d.is_dir():
+                        logger.info("[%s] Deleting bundle: %s", vid, d)
+                        shutil.rmtree(d)
         if llmwiki_dir is not None:
             for f in (llmwiki_dir / "raw").glob(f"youtube-blog-*-{vid}.md"):
                 logger.info("[%s] Deleting: %s", vid, f)
@@ -178,7 +214,7 @@ def run_single(config_path: Path, video_url: str, force: bool = False) -> int:
         logger.info("[%s] Found existing blog file: %s, skipping generation", vid, blog_path.name)
     else:
         logger.info("[%s] Generating blog post for: %s", vid, video_url)
-        blog_path = generate_blog_post(video_url, vid, youtube_repo)
+        blog_path = generate_blog_post(video_url, vid, youtube_repo, use_eyes=use_eyes)
         if blog_path is None:
             logger.error("[%s] Blog generation failed", vid)
             return 1
@@ -456,6 +492,11 @@ def main() -> int:
         help="Use cookies from BROWSER (e.g. chrome) to authenticate yt-dlp requests and avoid 429 rate limits.",
     )
     parser.add_argument(
+        "--use-eyes",
+        action="store_true",
+        help="Use /youtube-eyes instead of /youtube-blog (extracts video frames with YOLOv8 + OCR).",
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable debug logging (shows claude output, detailed diagnostics)",
@@ -475,7 +516,7 @@ def main() -> int:
     if args.url:
         if args.dry_run:
             parser.error("--dry-run cannot be used with --url")
-        return run_single(args.config, args.url, force=args.force)
+        return run_single(args.config, args.url, force=args.force, use_eyes=args.use_eyes)
     if args.force:
         parser.error("--force can only be used with --url")
     return run(args.config, dry_run=args.dry_run)

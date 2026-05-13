@@ -16,3 +16,4 @@ channels.toml
 .superpowers/
 docs/youtube_tools.egg-info/
 .worktrees/
+yolov8n.pt
